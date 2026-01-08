@@ -189,7 +189,8 @@ impl<'a> HyperCall<'a> {
         let config_pa = self.hv_get_real_pa(config_ipa);
         let config = unsafe { &*(config_pa as *const HvZoneConfig) };
 
-        debug!("hv_zone_start: config: {:#x?}", config);
+        info!("hv_zone_start: config: {:#x?},pa:{:#x}", config,config_pa);
+        // return HyperCallResult::Ok(0);
         if !is_this_root_zone() {
             return hv_result_err!(
                 EPERM,

@@ -319,11 +319,14 @@ impl Zone {
     ) {
         for rootcomplex_config in pci_rootcomplex_config {
             /* empty config */
+
+            info!("114514:{:x};size:{:x}",rootcomplex_config.ecam_base,rootcomplex_config.ecam_size);
             if rootcomplex_config.ecam_base == 0 {
                 continue;
             }
             #[cfg(feature = "ecam_pcie")]
             {
+                // loop{}
                 // use crate::pci::pci_handler::mmio_vpci_direct_handler;
                 self.mmio_region_register(
                     rootcomplex_config.ecam_base as usize,

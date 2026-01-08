@@ -140,7 +140,7 @@ fn main() {
     if target_path.exists() {
         fs::remove_file(target_path).expect("Failed to remove existing __board.rs");
     }
-    std::os::unix::fs::symlink(source_path, target_path).expect("Failed to create symlink");
+    std::os::unix::fs::symlink(source_path, target_path);//.expect("Failed to create symlink");
     log(&format!("Linking successful"));
 
     println!("cargo:rerun-if-env-changed=ARCH");
