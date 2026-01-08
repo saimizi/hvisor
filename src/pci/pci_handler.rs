@@ -40,7 +40,7 @@ fn handle_virt_pci_request(
     is_write: bool,
     dev_type: VpciDevType,
 ) -> HvResult<Option<usize>> {
-    pci_log!(
+    info!(
         "virt pci standard rw offset {:#x}, size {:#x}",
         offset,
         size
@@ -53,7 +53,7 @@ fn handle_virt_pci_request(
      */
     let result = dev.with_cap(|capabilities| {
         if let Some((cap_offset, cap)) = capabilities.range(..=offset).next_back() {
-            pci_log!(
+            info!(
                 "find cap at offset {:#x}, cap {:#?}",
                 cap_offset,
                 cap.get_type()

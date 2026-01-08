@@ -47,7 +47,9 @@ pub(crate) const DEFAULT_CSPACE_U32: [u32; STANDARD_CFG_SIZE / 4] = {
     arr
 };
 
+pub mod rng;
 pub mod standard;
+pub mod virtio_cap;
 
 /*
  * PciConfigAccessStatus is used to return the result of the config space access
@@ -68,6 +70,7 @@ pub enum VpciDevType {
     #[default]
     Physical = 0,
     StandardVdev = 1,
+    VirtioRng = 2,
     // Add new device types here
 }
 
@@ -95,7 +98,10 @@ pub trait VpciDeviceHandler: Sync + Send {
  * 2. Add the handler registration here: (&module::HANDLER, VpciDevType::YourType)
  */
 static HANDLERS: &[(&dyn VpciDeviceHandler, VpciDevType)] =
-    &[(&standard::HANDLER, VpciDevType::StandardVdev)];
+    &[
+        (&standard::HANDLER, VpciDevType::StandardVdev),
+        (&rng::HANDLER,VpciDevType::VirtioRng)
+    ];
 
 pub(crate) fn get_handler(dev_type: VpciDevType) -> Option<&'static dyn VpciDeviceHandler> {
     HANDLERS

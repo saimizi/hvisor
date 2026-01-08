@@ -322,6 +322,7 @@ impl PciMem {
     }
 
     pub fn get_virtual_value(&self) -> u32 {
+        info!("get_virtual_value:{:?}",self.bar_type);
         match self.bar_type {
             PciMemType::Mem64High => (self.virtual_value >> 32) as u32,
             _ => self.virtual_value as u32,
@@ -360,7 +361,7 @@ impl PciMem {
                 warn!("unkown bar type: {:#?}", self.bar_type);
             }
         }
-
+        info!("self.virtual_value = {}",val);
         self.virtual_value = val;
     }
 }
@@ -903,6 +904,7 @@ impl EndpointField {
         match (offset, size) {
             (0x00, 4) => EndpointField::ID,
             (0x04, 2) => EndpointField::Command,
+            (0x04, 4) => EndpointField::Command,
             (0x06, 2) => EndpointField::Status,
             (0x08, 4) => EndpointField::RevisionIDAndClassCode,
             (0x0c, 1) => EndpointField::CacheLineSize,
@@ -923,6 +925,7 @@ impl EndpointField {
             (0x2e, 2) => EndpointField::SubsystemId,
             (0x30, 4) => EndpointField::ExpansionRomBar,
             (0x34, 4) => EndpointField::CapabilityPointer,
+            (0x34, 1) => EndpointField::CapabilityPointer,
             (0x3c, 1) => EndpointField::InterruptLine,
             (0x3d, 1) => EndpointField::InterruptPin,
             (0x3e, 1) => EndpointField::MinGnt,
