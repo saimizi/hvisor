@@ -142,7 +142,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
             // }
             EndpointField::Bar(n)=>{
                 info!("Bar read:{}",n);
-                let bar = space.get_bararr()[n];
+                let bar = &space.get_bararr()[n];
                 // return Ok(PciConfigAccessStatus::Done(0x0));
                 if(bar.get_size_read()){
                     return Ok(PciConfigAccessStatus::Done(bar.get_size() as usize))
@@ -155,7 +155,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
             }
             EndpointField::CapabilityPointer=>{
                 info!("Cap ptr read!");
-                return Ok(PciConfigAccessStatus::Done(0x40));
+                return Ok(PciConfigAccessStatus::Done(0x60));
             }
             EndpointField::Command=>{
                 info!("cmd read!");
@@ -239,14 +239,14 @@ impl VpciDeviceHandler for VirtioRngHandler {
                 }
                 else{
                     
-                    let b = space.get_bararr()[n];
+                    let b = &space.get_bararr()[n];
                     let zone = this_zone();
                     let mut guard = zone.write();
                     // warn!("rng write mmio region");
                     guard.mmio_region_register(value , b.get_size() as usize, rng_mmio_handler, value);
                     drop(guard);
                     // warn!("done");
-                    space.write().clear_bar_size_read(n);
+                    space.write().clear_bar_size_read(n); 
                     space.with_bar_ref_mut(n, |bar|{
                         bar.set_virtual_value(value as u64);
                     });
@@ -299,6 +299,10 @@ impl VpciDeviceHandler for VirtioRngHandler {
 
         let virtio_common_cap = VirtioPciCap::new(
             super::virtio_cap::VirtioCfgType::CommonCfg,0,0x0,0x1000);
+        let virtio_isr_cap = VirtioPciCap::new(
+            super::virtio_cap::VirtioCfgType::IsrCfg, 0x40, 0x1000, 0x1000);
+        let virtio_notify_cap = VirtioPciCap::new(
+            super::virtio_cap::VirtioCfgType::NotifyCfg(0x00), 0x50, 0x2000, 0x1000);
         // 0x98 is an arbitrary value, used here only for demonstration purposes
         // please don't forget to set next cap pointer if next cap exists
         // let msi_cap_offset = 0x98;
@@ -309,6 +313,8 @@ impl VpciDeviceHandler for VirtioRngHandler {
             //     (msi_cap_offset as usize)..(msi_cap_offset as usize + msi_cap.get_size()) as usize,
             // );
             access.set_bits(0x40..0x50);
+            access.set_bits(0x50..0x60);
+            access.set_bits(0x60..0x70);
         });
 
         dev.with_cap_mut(|capabilities| {
@@ -318,6 +324,12 @@ impl VpciDeviceHandler for VirtioRngHandler {
             // );
             capabilities.insert(0x40, 
                 PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_common_cap)))
+            );
+            capabilities.insert(0x50, 
+                PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_isr_cap)))
+            );
+            capabilities.insert(0x60, 
+                PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_notify_cap)))
             );
         });
 
@@ -347,8 +359,24 @@ impl VpciDeviceHandler for VirtioRngHandler {
 /// Static handler instance for standard virtual PCI devices
 pub const HANDLER: VirtioRngHandler = VirtioRngHandler;
 
-pub fn rng_mmio_handler(mmio: &mut MMIOAccess, _base: usize) -> HvResult {
-    error!("i receive mmio!{:?}",mmio);
+pub fn rng_mmio_handler(mmio: &mut MMIOAccess, base: usize) -> HvResult {
+    error!("i receive mmio!{:?},base:{:x?}",mmio,base);
+    let zone = this_zone();
+    let bus = &zone.read().vpci_bus;
+    let (mut dev,mut bar) = (None,0);
+    for (b,i) in bus.read_devs(){
+        if let Some(res) = i.is_my_bar_addr(base) {
+            warn!("we found the device!{:?}",b);
+            dev = Some(i.clone());
+            bar = res;
+            break;
+        }
+    }
+
+    if let Some(found_dev) = dev{
+        return found_dev.bar_mmio_distribute(bar, mmio);
+    }
+    
     // panic!("hhh!");
     Ok(())
 }

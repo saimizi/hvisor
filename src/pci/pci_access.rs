@@ -14,7 +14,7 @@
 // Authors:
 //
 // #![allow(dead_code)]
-use alloc::string::String;
+use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
 use bit_field::BitField;
 use bitflags::bitflags;
 use core::{
@@ -30,10 +30,9 @@ use super::{
 };
 
 use crate::{
-    error::HvResult,
+    error::{HvError, HvResult},
     memory::{
-        mmio_perform_access, GuestPhysAddr, HostPhysAddr, MMIOAccess, MemFlags, MemoryRegion,
-        MemorySet,
+        GuestPhysAddr, HostPhysAddr, MMIOAccess, MemFlags, MemoryRegion, MemorySet, mmio_perform_access
     },
     pci::{pci_config::GLOBAL_PCIE_LIST, pci_struct::BIT_LENTH},
     percpu::this_zone,
@@ -143,7 +142,7 @@ impl Debug for PciMemType {
  * size_read: if software write 0xffff_ffff to bar, size_read will set so next time hvisor can rerturn !(size - 1) indicating size to the software
  * acutally size_read is not used now, we keep it just in case of possible special register handling in the future
  */
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct PciMem {
     bar_type: PciMemType,
     virtual_value: u64,
@@ -151,6 +150,7 @@ pub struct PciMem {
     size: u64,
     prefetchable: bool,
     size_read: bool,
+    cap_handler:Option<BTreeMap<usize,usize>>
 }
 
 impl PciMem {
@@ -162,6 +162,7 @@ impl PciMem {
             size,
             prefetchable,
             size_read: false,
+            cap_handler:None
         }
     }
 
@@ -173,6 +174,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
+            cap_handler:None
         }
     }
 
@@ -184,6 +186,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
+            cap_handler:None
         }
     }
 
@@ -195,6 +198,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
+            cap_handler:None
         }
     }
 
@@ -364,6 +368,26 @@ impl PciMem {
         info!("self.virtual_value = {}",val);
         self.virtual_value = val;
     }
+
+    pub fn get_virtual_addr(&self)->Option<u32>{
+        match self.bar_type {
+            PciMemType::Io=>{
+                Some(((self.virtual_value>>2) <<2) as u32)
+            }
+            PciMemType::Unused => {
+                // warn!("get addr from unused bar!");
+                None
+            }
+            _ => {
+                Some(((self.virtual_value >> 4) <<4) as u32)
+            }
+        }
+    }
+
+    pub fn handle_mmio_within_bar(&self,mmio_ac:&mut MMIOAccess) -> HvResult{
+        warn!("bar handling!");
+        Ok(())
+    }
 }
 
 impl Debug for PciMem {
@@ -422,7 +446,7 @@ impl Debug for PciMem {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct Bar {
     bararr: [PciMem; 6],
 }

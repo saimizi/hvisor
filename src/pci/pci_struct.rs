@@ -36,9 +36,7 @@ use super::{
 };
 
 use crate::{
-    config::HvPciDevConfig,
-    error::{HvErrorNum, HvResult},
-    pci::vpci_dev::VpciDevType,
+    config::HvPciDevConfig, error::{HvErrorNum, HvResult}, memory::MMIOAccess, pci::vpci_dev::VpciDevType
 };
 
 type VirtualPciConfigBits = BitArr!(for BIT_LENTH, in u8, Lsb0);
@@ -505,6 +503,14 @@ impl ArcRwLockVirtualPciConfigSpace {
     pub fn write(&self) -> spin::RwLockWriteGuard<'_, VirtualPciConfigSpace> {
         self.0.write()
     }
+
+    pub fn is_my_bar_addr(&self,addr:usize) -> Option<usize> {
+        self.0.read().is_my_bar_addr(addr)
+    }
+
+    pub fn bar_mmio_distribute(&self,bar:usize,mmio_ac:&mut MMIOAccess) -> HvResult{
+        self.0.read().bar_mmio_distribute(bar, mmio_ac)
+    }
 }
 
 impl Debug for ArcRwLockVirtualPciConfigSpace {
@@ -549,7 +555,7 @@ impl VirtualPciConfigSpace {
     }
 
     pub fn get_bararr(&self) -> Bar {
-        self.bararr
+        self.bararr.clone()
     }
 
     pub fn get_bar_ref(&self, slot: usize) -> &PciMem {
@@ -577,7 +583,7 @@ impl VirtualPciConfigSpace {
     }
 
     pub fn get_rom(&self) -> PciMem {
-        self.rom
+        self.rom.clone()
     }
 
     pub fn get_dev_type(&self) -> VpciDevType {
@@ -631,6 +637,27 @@ impl VirtualPciConfigSpace {
             }
             _ => {}
         }
+    }
+
+    pub fn is_my_bar_addr(&self,addr:usize) -> Option<usize>{
+        let mut index = 0;
+        for i in &self.bararr{
+            if let Some(res) = i.get_virtual_addr(){
+                warn!("get res:{:x}",res);
+                if res as usize == addr {
+                    return Some(index);
+                }
+            }
+            index += 1;
+            // if i.get_virtual_addr() == addr as u32{
+            //     return true;
+            // }
+        }
+        None
+    }
+
+    pub fn bar_mmio_distribute(&self,bar:usize,mmio_ac:&mut MMIOAccess) -> HvResult {
+        self.bararr[bar].handle_mmio_within_bar(mmio_ac)
     }
 }
 
@@ -1457,6 +1484,10 @@ impl VirtualRootComplex {
 
     pub fn devs(&mut self) -> &mut BTreeMap<Bdf, ArcRwLockVirtualPciConfigSpace> {
         &mut self.devs
+    }
+
+    pub fn read_devs(&self) -> & BTreeMap<Bdf,ArcRwLockVirtualPciConfigSpace>{
+        &self.devs
     }
 
     pub fn get(&self, bdf: &Bdf) -> Option<&ArcRwLockVirtualPciConfigSpace> {
