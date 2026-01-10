@@ -139,7 +139,7 @@ impl VpciDeviceHandler for StandardHandler {
         });
 
         dev.with_cap_mut(|capabilities| {
-            capabilities.insert(
+            capabilities.insert_cap(
                 msi_cap_offset,
                 PciCapability::new_virt(CapabilityType::MsiX, Arc::new(RwLock::new(msi_cap))),
             );

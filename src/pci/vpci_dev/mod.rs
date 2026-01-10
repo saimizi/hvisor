@@ -50,7 +50,7 @@ pub(crate) const DEFAULT_CSPACE_U32: [u32; STANDARD_CFG_SIZE / 4] = {
 pub mod rng;
 pub mod standard;
 pub mod virtio_cap;
-
+pub mod capability_handler;
 /*
  * PciConfigAccessStatus is used to return the result of the config space access
  * Done(usize): the value is returned in usize

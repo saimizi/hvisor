@@ -13,7 +13,7 @@
 //
 // Authors:
 //
-use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use bit_field::BitField;
 use bitvec::{array::BitArray, order::Lsb0, BitArr};
 use core::{
@@ -22,7 +22,7 @@ use core::{
     ops::{Deref, DerefMut, Range},
     str::FromStr,
 };
-use spin::RwLock;
+use spin::{RwLock};
 
 use super::{
     config_accessors::{PciConfigAccessor, PciConfigMmio},
@@ -36,7 +36,7 @@ use super::{
 };
 
 use crate::{
-    config::HvPciDevConfig, error::{HvErrorNum, HvResult}, memory::MMIOAccess, pci::vpci_dev::VpciDevType
+    config::HvPciDevConfig, error::{HvErrorNum, HvResult}, memory::{GuestPhysAddr, MMIOAccess}, pci::vpci_dev::{VpciDevType, virtio_cap::{AreaInBar, BarAreaManager, BarUsageInfo}}
 };
 
 type VirtualPciConfigBits = BitArr!(for BIT_LENTH, in u8, Lsb0);
@@ -643,7 +643,7 @@ impl VirtualPciConfigSpace {
         let mut index = 0;
         for i in &self.bararr{
             if let Some(res) = i.get_virtual_addr(){
-                warn!("get res:{:x}",res);
+                // warn!("get res:{:x}",res);
                 if res as usize == addr {
                     return Some(index);
                 }
@@ -657,7 +657,12 @@ impl VirtualPciConfigSpace {
     }
 
     pub fn bar_mmio_distribute(&self,bar:usize,mmio_ac:&mut MMIOAccess) -> HvResult {
-        self.bararr[bar].handle_mmio_within_bar(mmio_ac)
+        // self.bararr[bar].handle_mmio_within_bar(mmio_ac)
+        self.capabilities.handle_bar_read(bar, mmio_ac)
+    }
+
+    pub fn init_mmio_region_on_bar(&self,bar:usize){
+        
     }
 }
 
@@ -1777,6 +1782,10 @@ pub trait PciCapabilityRegion: Send + Sync {
         let next_offset = (value as u16).get_bits(8..16) as PciConfigAddress;
         Ok(next_offset)
     }
+
+    fn bar_usage_info(&self) -> Option<BarUsageInfo>{
+        None
+    }
 }
 
 pub struct StandardPciCapabilityRegion {
@@ -1817,11 +1826,33 @@ impl PciCapabilityRegion for StandardPciCapabilityRegion {
 }
 
 #[derive(Clone)]
-pub struct PciCapabilityList(BTreeMap<PciConfigAddress, PciCapability>);
+pub struct PciCapabilityList{
+    cap_in_config:BTreeMap<PciConfigAddress, PciCapability>,
+    cap_in_bar:Arc<RwLock<BarAreaManager>>
+}
 
 impl PciCapabilityList {
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self{
+            cap_in_config:BTreeMap::new(),
+            cap_in_bar:Arc::new(RwLock::new(BarAreaManager::new()))
+        }
+    }
+
+    pub fn insert_cap(&mut self,addr:PciConfigAddress,cap:PciCapability)->Option<PciCapability>{
+        self.cap_in_config.insert(addr, cap)
+    }
+
+    pub fn register_bar_area(&mut self,bar:usize,bar_relative_addr:GuestPhysAddr,size_in_bar:usize,data:Arc<RwLock<dyn AreaInBar>>){
+        self.cap_in_bar.write().insert(bar, bar_relative_addr, size_in_bar, data);
+    }
+
+    pub fn cap_in_config_ref(&self)->&BTreeMap<PciConfigAddress,PciCapability>{
+        &self.cap_in_config
+    }
+
+    pub fn handle_bar_read(&self,bar:usize,mmio_ac:&mut MMIOAccess)->HvResult{
+        self.cap_in_bar.read().handle_bar_access(bar, mmio_ac)
     }
 }
 
@@ -1831,24 +1862,24 @@ impl PciCapabilityList {
 //     }
 // }
 
-impl Deref for PciCapabilityList {
-    type Target = BTreeMap<PciConfigAddress, PciCapability>;
+// impl Deref for PciCapabilityList {
+//     type Target = BTreeMap<PciConfigAddress, PciCapability>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
 
-impl DerefMut for PciCapabilityList {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+// impl DerefMut for PciCapabilityList {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }
 
 impl Debug for PciCapabilityList {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "PciCapabilityList {{\n")?;
-        for (offset, capability) in &self.0 {
+        for (offset, capability) in &self.cap_in_config {
             write!(f, "0x{:x} {:?}\n", offset, capability)?;
         }
         write!(f, "}}")?;
@@ -1873,7 +1904,7 @@ impl VirtualPciConfigSpace {
                 CapabilityType::PciExpress => {}
                 _ => {}
             }
-            capabilities.insert(capability.get_offset(), capability);
+            capabilities.cap_in_config.insert(capability.get_offset(), capability);
         }
         info!("capability {:#?}", capabilities);
         self.capabilities = capabilities;

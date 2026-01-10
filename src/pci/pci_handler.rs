@@ -52,7 +52,7 @@ fn handle_virt_pci_request(
      * offset is the correct cap we need.
      */
     let result = dev.with_cap(|capabilities| {
-        if let Some((cap_offset, cap)) = capabilities.range(..=offset).next_back() {
+        if let Some((cap_offset, cap)) = capabilities.cap_in_config_ref().range(..=offset).next_back() {
             info!(
                 "find cap at offset {:#x}, cap {:#?}",
                 cap_offset,

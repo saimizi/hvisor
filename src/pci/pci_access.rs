@@ -150,7 +150,7 @@ pub struct PciMem {
     size: u64,
     prefetchable: bool,
     size_read: bool,
-    cap_handler:Option<BTreeMap<usize,usize>>
+    // cap_handler:Option<BTreeMap<usize,usize>>
 }
 
 impl PciMem {
@@ -162,7 +162,7 @@ impl PciMem {
             size,
             prefetchable,
             size_read: false,
-            cap_handler:None
+            // cap_handler:None
         }
     }
 
@@ -174,7 +174,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
-            cap_handler:None
+            // cap_handler:None
         }
     }
 
@@ -186,7 +186,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
-            cap_handler:None
+            // cap_handler:None
         }
     }
 
@@ -198,7 +198,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
-            cap_handler:None
+            // cap_handler:None
         }
     }
 
