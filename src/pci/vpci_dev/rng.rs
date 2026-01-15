@@ -317,7 +317,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
             access.set_bits(0x60..0x70);
         });
         let commcfg = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
-
+        let test = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
         dev.with_cap_mut(|capabilities| {
             // capabilities.insert(
             //     msi_cap_offset,
@@ -330,6 +330,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
             capabilities.insert_cap(0x50, 
                 PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_isr_cap)))
             );
+            capabilities.register_bar_area(0x04,0x1000,0x1000,test);
             capabilities.insert_cap(0x60, 
                 PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_notify_cap)))
             );

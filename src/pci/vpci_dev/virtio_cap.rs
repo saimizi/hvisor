@@ -176,7 +176,8 @@ pub struct VirtioPciCommonCfg{
     queue_driver:u64,
     queue_device:u64,
     queue_notify_data:u16,
-    queue_reset:u16
+    queue_reset:u16,
+    config_changed:bool
 }
 
 impl VirtioPciCommonCfg{
@@ -199,13 +200,61 @@ impl VirtioPciCommonCfg{
             queue_driver: 0, 
             queue_device: 0, 
             queue_notify_data: 0, 
-            queue_reset: 0 
+            queue_reset: 0,
+            config_changed: false
         }
     }
 }
 
+impl VirtioPciCommonCfg{
+    pub fn write_into(&mut self,mmio_ac:&MMIOAccess)->bool{
+        let addr = mmio_ac.address;
+        let size = mmio_ac.size;
+        let value = mmio_ac.value;
+        info!("write in common cfg !!! addr:{:x},size:{:x},value:{:x}",addr,size,value);
+        if size == 1{
+            match addr {
+                0x14 => {
+                    self.device_status = value as u8;
+                    return true
+                }
+                _ => {
+                    warn!("write:size is misalign!");
+                    return false
+                }
+            }
+        }
+
+        if size == 4{
+            match addr {
+                0x00 => {
+                    self.device_feature_select = value as u32;
+                    return true
+                }
+                0x08 => {
+                    self.driver_feature_select = value as u32;
+                    return true
+                }
+                0x0c => {
+                    if self.driver_feature_select == 0 {
+                        self.driver_feature.0 = value as u32;
+                    }else{
+                        self.driver_feature.1 = value as u32;
+                    }
+                    return true;
+                }
+                _=>{
+                    warn!("write:not implement yet!addr:{:x}",addr);
+                    return false;
+                }
+            }
+        }
+        false
+    }
+}
+
 impl AreaInBar for VirtioPciCommonCfg{
-    fn read(&self, mmio_ac:&mut MMIOAccess) -> HvResult {
+    fn read(&mut self, mmio_ac:&mut MMIOAccess) -> HvResult {
         let addr = mmio_ac.address;
         let size = mmio_ac.size;
         info!("read in common cfg !!! addr:{:x},size:{:x}",addr,size);
@@ -214,12 +263,30 @@ impl AreaInBar for VirtioPciCommonCfg{
                 0x14 => {
                     mmio_ac.value = self.device_status as usize;
                 }
+                0x15 => {
+                    if self.config_changed{
+                        self.config_generation += 1;
+                    }
+                    mmio_ac.value = self.config_generation as usize;
+                }
                 _ => {
                     warn!("read:size is misalign!");
                     return Ok(());
                 }
             }
             info!("read from common cfg:0x{:x}",mmio_ac.value);
+        }
+        
+        if size == 2{
+            match addr {
+                0x12 => {
+                    mmio_ac.value == self.num_queue as usize;
+                }
+                _ => {
+                    warn!("read:size is misalign!");
+                    return Ok(());
+                }
+            }
         }
 
         if size == 4{
@@ -243,36 +310,12 @@ impl AreaInBar for VirtioPciCommonCfg{
     }
 
     fn write(&mut self,mmio_ac:& MMIOAccess) -> HvResult {
-        let addr = mmio_ac.address;
-        let size = mmio_ac.size;
-        let value = mmio_ac.value;
-        info!("write in common cfg !!! addr:{:x},size:{:x},value:{:x}",addr,size,value);
-        if size == 1{
-            match addr {
-                0x14 => {
-                    self.device_status = value as u8;
-                    return Ok(())
-                }
-                _ => {
-                    warn!("write:size is misalign!");
-                    return Ok(())
-                }
-            }
-        }
-
-        if size == 4{
-            match addr {
-                0x00 => {
-                    self.device_feature_select = value as u32;
-                    return Ok(());
-                }
-                _=>{
-                    warn!("write:not implement yet!addr:{:x}",addr);
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())   
+           if self.write_into(mmio_ac){
+            self.config_changed = true;
+            return Ok(())
+           }
+           warn!("the write has not reached the common config!");
+           Ok(())
     }
 }
 
@@ -290,7 +333,7 @@ impl BarUsageInfo{
 }
 
 pub trait AreaInBar: Send + Sync{
-    fn read(&self, mmio_ac:&mut MMIOAccess) -> HvResult;
+    fn read(&mut self, mmio_ac:&mut MMIOAccess) -> HvResult;
 
     fn write(&mut self,mmio_ac:&MMIOAccess) -> HvResult;
 }
@@ -324,7 +367,7 @@ impl BarAreaManager{
             if mmio_ac.is_write{
                 return area.write().write(mmio_ac);
             }else{
-                return area.read().read(mmio_ac);
+                return area.write().read(mmio_ac);
             }
         }
         warn!("we didn't find the access result!");
