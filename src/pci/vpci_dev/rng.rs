@@ -3,7 +3,7 @@ use spin::rwlock::RwLock;
 
 use crate::pci::vpci_dev::capability_handler::virtio_common_cfg_handler;
 use crate::pci::vpci_dev::standard::mmio_vdev_standard_handler;
-use crate::pci::vpci_dev::virtio_cap::{VirtioPciCap, VirtioPciCommonCfg};
+use crate::pci::vpci_dev::virtio_cap::{MsixCap, MsixTable, VirtioPciCap, VirtioPciCommonCfg};
 use crate::percpu::this_zone;
 use crate::{error::HvResult, pci::pci_struct::VirtualPciConfigSpace};
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, CapabilityType, PciCapability, PciCapabilityRegion};
@@ -155,7 +155,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
             }
             EndpointField::CapabilityPointer=>{
                 info!("Cap ptr read!");
-                return Ok(PciConfigAccessStatus::Done(0x60));
+                return Ok(PciConfigAccessStatus::Done(0x70));
             }
             EndpointField::Command=>{
                 info!("cmd read!");
@@ -298,11 +298,12 @@ impl VpciDeviceHandler for VirtioRngHandler {
         });
 
         let virtio_common_cap = VirtioPciCap::new(
-            super::virtio_cap::VirtioCfgType::CommonCfg,0,0x0,0x1000,Some(virtio_common_cfg_handler));
+            super::virtio_cap::VirtioCfgType::CommonCfg,0,0x10,0x0,0x1000,Some(virtio_common_cfg_handler));
         let virtio_isr_cap = VirtioPciCap::new(
-            super::virtio_cap::VirtioCfgType::IsrCfg, 0x40, 0x1000, 0x1000,None);
+            super::virtio_cap::VirtioCfgType::IsrCfg, 0x40,0x10, 0x1000, 0x1000,None);
         let virtio_notify_cap = VirtioPciCap::new(
-            super::virtio_cap::VirtioCfgType::NotifyCfg(0x00), 0x50, 0x2000, 0x1000,None);
+            super::virtio_cap::VirtioCfgType::NotifyCfg(0x00), 0x50,0x14, 0x2000, 0x1000,None);
+        let msix_cap = MsixCap::new(0x60,0x10);
         // 0x98 is an arbitrary value, used here only for demonstration purposes
         // please don't forget to set next cap pointer if next cap exists
         // let msi_cap_offset = 0x98;
@@ -315,9 +316,11 @@ impl VpciDeviceHandler for VirtioRngHandler {
             access.set_bits(0x40..0x50);
             access.set_bits(0x50..0x60);
             access.set_bits(0x60..0x70);
+            access.set_bits(0x70..0x90);
         });
         let commcfg = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
-        let test = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
+        let msix_table:Arc<RwLock<MsixTable>> = Arc::new(RwLock::new(MsixTable::new(0x10)));
+        // let test = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
         dev.with_cap_mut(|capabilities| {
             // capabilities.insert(
             //     msi_cap_offset,
@@ -330,10 +333,14 @@ impl VpciDeviceHandler for VirtioRngHandler {
             capabilities.insert_cap(0x50, 
                 PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_isr_cap)))
             );
-            capabilities.register_bar_area(0x04,0x1000,0x1000,test);
+            // capabilities.register_bar_area(0x04,0x1000,0x1000,test);
             capabilities.insert_cap(0x60, 
                 PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_notify_cap)))
             );
+            capabilities.insert_cap(0x70, 
+                    PciCapability::new_virt(CapabilityType::MsiX, Arc::new(RwLock::new(msix_cap)))
+            );
+            capabilities.register_bar_area(0x01, 0x0000, 0x800 , msix_table);
         });
 
         dev.with_access_mut(|access| {
@@ -369,7 +376,7 @@ pub fn rng_mmio_handler(mmio: &mut MMIOAccess, base: usize) -> HvResult {
     let (mut dev,mut bar) = (None,0);
     for (b,i) in bus.read_devs(){
         if let Some(res) = i.is_my_bar_addr(base) {
-            warn!("we found the device!{:?}",b);
+            // warn!("we found the device!{:?}",b);
             dev = Some(i.clone());
             bar = res;
             break;

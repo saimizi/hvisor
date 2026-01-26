@@ -40,11 +40,11 @@ fn handle_virt_pci_request(
     is_write: bool,
     dev_type: VpciDevType,
 ) -> HvResult<Option<usize>> {
-    info!(
-        "virt pci standard rw offset {:#x}, size {:#x}",
-        offset,
-        size
-    );
+    // info!(
+    //     "virt pci standard rw offset {:#x}, size {:#x}",
+    //     offset,
+    //     size
+    // );
 
     /*
      * The capability is located in the upper part of the configuration space,
