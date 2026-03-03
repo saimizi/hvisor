@@ -489,7 +489,7 @@ impl Zone {
                 write_volatile((gicd_base + GICD_ICACTIVER + idx * 4) as *mut u32, mask);
             }
         }
-        if host_gits_size() != 0{
+        if host_gits_size() != 0 {
             gits_reset(self.id);
         }
     }
