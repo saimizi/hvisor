@@ -51,6 +51,7 @@ pub mod rng;
 pub mod standard;
 pub mod virtio_cap;
 pub mod capability_handler;
+pub mod virtio_queue;
 /*
  * PciConfigAccessStatus is used to return the result of the config space access
  * Done(usize): the value is returned in usize

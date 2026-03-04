@@ -251,7 +251,7 @@ impl Cmdq {
             0x08 => {
                 let id = value[0] & 0xffffffff00000000;
                 let itt_base = value[2] & 0x000fffffffffff00; // the lowest 8 bits are zeros
-                debug!(
+                info!(
                     "MAPD cmd, for device {:#x}, itt base {:#x}",
                     id >> 32,
                     itt_base
@@ -266,7 +266,7 @@ impl Cmdq {
                 };
                 new_cmd[2] &= !0x000fffffffffff00u64;
                 new_cmd[2] |= phys_itt_base as u64;
-                debug!(
+                info!(
                     "MAPD cmd, set ITT: {:#x} to device {:#x}",
                     phys_itt_base,
                     id >> 32
@@ -282,7 +282,7 @@ impl Cmdq {
                 new_cmd[2] &= !0xffffu64;
                 new_cmd[2] |= icid & 0xffff;
                 enable_one_lpi((intid - 8192) as _);
-                debug!(
+                info!(
                     "MAPTI cmd, for device {:#x}, event {:#x} -> vicid {:#x} (icid {:#x}) + intid {:#x}",
                     id >> 32,
                     event,

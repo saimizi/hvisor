@@ -3,7 +3,7 @@ use spin::rwlock::RwLock;
 
 use crate::pci::vpci_dev::capability_handler::virtio_common_cfg_handler;
 use crate::pci::vpci_dev::standard::mmio_vdev_standard_handler;
-use crate::pci::vpci_dev::virtio_cap::{MsixCap, MsixTable, VirtioPciCap, VirtioPciCommonCfg};
+use crate::pci::vpci_dev::virtio_cap::{MsixCap, MsixTable, VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue};
 use crate::percpu::this_zone;
 use crate::{error::HvResult, pci::pci_struct::VirtualPciConfigSpace};
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, CapabilityType, PciCapability, PciCapabilityRegion};
@@ -143,6 +143,10 @@ impl VpciDeviceHandler for VirtioRngHandler {
             EndpointField::Bar(n)=>{
                 info!("Bar read:{}",n);
                 let bar = &space.get_bararr()[n];
+                if n == 0{
+                    info!("Bar 0 has been read!");
+                    return Ok(PciConfigAccessStatus::Done(0x0000_0001));
+                }
                 // return Ok(PciConfigAccessStatus::Done(0x0));
                 if(bar.get_size_read()){
                     return Ok(PciConfigAccessStatus::Done(bar.get_size() as usize))
@@ -155,7 +159,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
             }
             EndpointField::CapabilityPointer=>{
                 info!("Cap ptr read!");
-                return Ok(PciConfigAccessStatus::Done(0x70));
+                return Ok(PciConfigAccessStatus::Done(0x74));
             }
             EndpointField::Command=>{
                 info!("cmd read!");
@@ -163,6 +167,10 @@ impl VpciDeviceHandler for VirtioRngHandler {
             }
             EndpointField::RevisionIDAndClassCode=>{
                 return Ok(PciConfigAccessStatus::Done(0xff00_0000));
+            }
+            EndpointField::Unknown(x)=>{
+                warn!("----unknown read!!!:0x{:x}----",x);
+                return Ok(PciConfigAccessStatus::Default);
             }
             _ => {
                 Ok(PciConfigAccessStatus::Default)
@@ -301,8 +309,10 @@ impl VpciDeviceHandler for VirtioRngHandler {
             super::virtio_cap::VirtioCfgType::CommonCfg,0,0x10,0x0,0x1000,Some(virtio_common_cfg_handler));
         let virtio_isr_cap = VirtioPciCap::new(
             super::virtio_cap::VirtioCfgType::IsrCfg, 0x40,0x10, 0x1000, 0x1000,None);
-        let virtio_notify_cap = VirtioPciCap::new(
-            super::virtio_cap::VirtioCfgType::NotifyCfg(0x00), 0x50,0x14, 0x2000, 0x1000,None);
+        // let virtio_notify_cap = VirtioPciCap::new(
+        //     super::virtio_cap::VirtioCfgType::NotifyCfg(0x04), 0x50,0x14, 0x2000, 0x1000,None);
+        let virtio_notify_cap = VirtioNotifyCap::new(0x50,0x2000,0x1000);
+        let locked_notify = Arc::new(RwLock::new(virtio_notify_cap));
         let msix_cap = MsixCap::new(0x60,0x10);
         // 0x98 is an arbitrary value, used here only for demonstration purposes
         // please don't forget to set next cap pointer if next cap exists
@@ -320,6 +330,11 @@ impl VpciDeviceHandler for VirtioRngHandler {
         });
         let commcfg = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
         let msix_table:Arc<RwLock<MsixTable>> = Arc::new(RwLock::new(MsixTable::new(0x10)));
+        let isrcfg:Arc<RwLock<VirtioISRCap>> = Arc::new(RwLock::new(VirtioISRCap::new()));
+        isrcfg.write().set_isr(1);
+        let vq:Arc<RwLock<Virtqueue>> = Arc::new(RwLock::new(Virtqueue::new(msix_table.clone())));
+        commcfg.write().insert_queue(vq.clone());
+        locked_notify.write().insert_queue(vq);
         // let test = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
         dev.with_cap_mut(|capabilities| {
             // capabilities.insert(
@@ -333,11 +348,13 @@ impl VpciDeviceHandler for VirtioRngHandler {
             capabilities.insert_cap(0x50, 
                 PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_isr_cap)))
             );
+            capabilities.register_bar_area(0x04, 0x1000, 0x1000, isrcfg);
             // capabilities.register_bar_area(0x04,0x1000,0x1000,test);
             capabilities.insert_cap(0x60, 
-                PciCapability::new_virt(CapabilityType::Vendor, Arc::new(RwLock::new(virtio_notify_cap)))
+                PciCapability::new_virt(CapabilityType::Vendor,locked_notify.clone())
             );
-            capabilities.insert_cap(0x70, 
+            capabilities.register_bar_area(0x04, 0x2000, 0x1000, locked_notify);
+            capabilities.insert_cap(0x74, 
                     PciCapability::new_virt(CapabilityType::MsiX, Arc::new(RwLock::new(msix_cap)))
             );
             capabilities.register_bar_area(0x01, 0x0000, 0x800 , msix_table);

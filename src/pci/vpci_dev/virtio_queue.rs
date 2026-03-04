@@ -1,0 +1,165 @@
+use core::{marker::PhantomData, mem::size_of};
+
+#[derive(Clone, Copy)]
+pub struct GuestMemory{
+    ptr:usize,
+    size:usize,
+}
+
+impl GuestMemory{
+    pub fn new(ptr:usize,size:usize)->Self{
+        Self { ptr, size }
+    }
+
+    pub fn set_ptr(&mut self,ptr:usize){
+        self.ptr=ptr;
+    }
+
+    pub fn read_obj<T: Copy>(&self,offset:u64)->T{
+        warn!("read from :0x{:x},offset:{:x}",self.ptr,offset);
+        let obj_ptr = self.translate(offset) as *const T;
+        unsafe {
+            core::ptr::read_unaligned(obj_ptr)
+        }
+    }
+
+    pub fn write_obj<T: Copy>(&self,offset:u64,val:T){
+        warn!("write into :0x{:x},offset:{:x}",self.ptr,offset);
+        let obj_ptr = self.translate(offset) as *mut T;
+        unsafe {
+            core::ptr::write_unaligned(obj_ptr, val);
+        }
+    }
+    
+    fn translate(&self, offset:u64)-> *mut u8{
+        assert!(offset < self.size as u64);
+        unsafe {
+            let ptr = self.ptr as *mut u8;
+            ptr.add(offset as usize)
+        }
+    } 
+}
+
+
+#[derive(Clone, Copy)]
+pub struct GuestSlice<T>{
+    mem: GuestMemory,
+    // base: u64,
+    len: usize,
+    _phantom: core::marker::PhantomData<T>
+}
+
+impl<'a, T:Copy> GuestSlice<T>{
+
+    pub fn new(base:usize,len:usize) -> Self{
+        let memory_size = len*core::mem::size_of::<T>();
+        let mem = GuestMemory::new(base, memory_size);
+        Self { mem, len, _phantom: PhantomData}
+    }
+
+    pub fn set_ptr(&mut self,ptr:usize){
+        self.mem.set_ptr(ptr);
+    }
+
+    pub fn get(&self, index: usize) -> T{
+        assert!(index < self.len);
+
+        let offset = index * core::mem::size_of::<T>();
+        self.mem.read_obj::<T>(offset as u64)
+    }
+
+    pub fn set(&self, index: usize, val:T){
+        assert!(index < self.len);
+
+        let offset = index * core::mem::size_of::<T>();
+        self.mem.write_obj(offset as u64, val);
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy,Debug)]
+pub struct VirtqDesc{
+    pub addr: u64,
+    pub len: u32,
+    pub flags: u16,
+    pub next: u16,
+}
+
+pub type DescriptorTable = GuestSlice<VirtqDesc>;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct AvailRing {
+    mem: GuestMemory,
+    // base: u64,
+    queue_size: u16,
+}
+
+impl AvailRing{
+    pub fn new(base:usize, queue_size:u16) -> Self{
+        let memory_size = 4 + queue_size as usize * 2;
+        let mem = GuestMemory::new(base, memory_size);
+        Self { mem, queue_size }
+    }
+
+    pub fn set_ptr(&mut self,ptr:usize){
+        self.mem.set_ptr(ptr);
+    }
+
+    pub fn get_idx(&self) -> u16{
+        self.mem.read_obj::<u16>( 2)
+    }
+
+    pub fn get_ring_content(&self,idx:usize) -> u16{
+        let offset = 4 + idx*2;
+        self.mem.read_obj::<u16>(offset as u64)
+    }
+    // pub fn ring(&self, index: u16)
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VirtqUsedElem{
+    pub id:u32,
+    pub len:u32
+}
+
+impl VirtqUsedElem{
+    pub fn new(id:u32,len:u32)->Self{
+        Self { id, len }
+    }
+}
+
+
+#[derive(Clone, Copy)]
+pub struct VirtqUsed{
+    mem:GuestMemory,
+    queue_size:u16
+}
+
+impl VirtqUsed{
+
+    pub fn new(base:usize,queue_size:u16)->Self{
+        let memory_size = 4 + (queue_size as usize)*size_of::<VirtqUsedElem>();
+        let mem = GuestMemory::new(base, memory_size);
+        Self { mem, queue_size }
+
+    }
+
+    pub fn set_ptr(&mut self,ptr:usize){
+        self.mem.set_ptr(ptr);
+    }
+
+    pub fn write_ring(&self,idx:usize,val:VirtqUsedElem){
+        let offset = 4 + idx*size_of::<VirtqUsedElem>();
+        self.mem.write_obj(offset as u64, val);
+    }
+
+    pub fn get_idx(&self)->u16{
+        self.mem.read_obj::<u16>(2)
+    }
+
+    pub fn set_idx(&self,val:u16){
+        self.mem.write_obj::<u16>(2, val);
+    }
+}
