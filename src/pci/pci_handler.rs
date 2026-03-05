@@ -53,11 +53,11 @@ fn handle_virt_pci_request(
      */
     let result = dev.with_cap(|capabilities| {
         if let Some((cap_offset, cap)) = capabilities.cap_in_config_ref().range(..=offset).next_back() {
-            info!(
-                "find cap at offset {:#x}, cap {:#?}",
-                cap_offset,
-                cap.get_type()
-            );
+            // info!(
+            //     "find cap at offset {:#x}, cap {:#?}",
+            //     cap_offset,
+            //     cap.get_type()
+            // );
             let end = *cap_offset + cap.get_size() as u64;
             if offset >= end {
                 return hv_result_err!(

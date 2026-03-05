@@ -1,5 +1,6 @@
 use core::{array::from_fn, ptr::{self, write_bytes}, slice::{from_raw_parts, from_raw_parts_mut}, sync::atomic::fence};
 
+use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
 use alloc::{sync::Arc, vec::Vec};
 use bitvec::index::BitSel;
 use spin::rwlock::RwLock;
@@ -9,6 +10,8 @@ use crate::{device::irqchip::inject_irq, error::HvResult, memory::{GuestPhysAddr
 pub type PciCapabilityHandler = fn (&mut MMIOAccess,usize) -> HvResult;
 
 const VIRTQ_DESC_F_NEXT:u16 = 1;
+
+pub static mut MAPTI_INTERCEPTOR:Option<Arc<RwLock<MsixTable>>> = None;
 
 fn put_together(src:(u8,u8,u8,u8))->u32{
     let a =(src.0 as u32)<<24 |
@@ -259,7 +262,7 @@ impl Virtqueue{
             let desc = desc_area.get(avail_ring_content as usize);
             // info!("desc read:{:x?}",desc);
             unsafe {
-                write_bytes(desc.addr as *mut u8, 0x42, desc.len as usize);
+                write_bytes(desc.addr as *mut u8, '0' as u8, desc.len as usize);
             }
             let used_item = VirtqUsedElem::new(avail_ring_content as u32, desc.len);
             used_area.write_ring(idx as usize, used_item);
@@ -346,7 +349,7 @@ impl VirtioPciCommonCfg{
         let addr = mmio_ac.address;
         let size = mmio_ac.size;
         let value = mmio_ac.value;
-        info!("----write in common cfg !!! addr:{:x},size:{:x},value:{:x}----",addr,size,value);
+        // info!("----write in common cfg !!! addr:{:x},size:{:x},value:{:x}----",addr,size,value);
         if size == 1{
             match addr {
                 0x14 => {
@@ -470,7 +473,7 @@ impl AreaInBar for VirtioPciCommonCfg{
                     return Ok(());
                 }
             }
-            info!("read from common cfg:0x{:x}",mmio_ac.value);
+            // info!("read from common cfg:0x{:x}",mmio_ac.value);
         }
         
         if size == 2{
@@ -499,7 +502,7 @@ impl AreaInBar for VirtioPciCommonCfg{
                     return Ok(());
                 }
             }
-            info!("read from common cfg:0x{:x}",mmio_ac.value);
+            // info!("read from common cfg:0x{:x}",mmio_ac.value);
         }
 
         if size == 4{
@@ -517,7 +520,7 @@ impl AreaInBar for VirtioPciCommonCfg{
                     return Ok(());
                 }
             }
-            info!("read from common cfg:0x{:x}",mmio_ac.value);
+            // info!("read from common cfg:0x{:x}",mmio_ac.value);
         }
         Ok(())        
     }
@@ -644,7 +647,7 @@ impl MsixCap{
 
 impl PciCapabilityRegion for MsixCap{
        fn read(&self, offset: crate::pci::PciConfigAddress, size: usize) -> crate::error::HvResult<u32> {
-        info!("read cap:{:x},size:{}",offset,size);
+        // info!("read cap:{:x},size:{}",offset,size);
         if offset as usize %size != 0 {
             warn!("cap read is misalign!");
             return Ok(0);
@@ -731,21 +734,23 @@ struct MsixTableEntry{
     pub message_address: u32,
     pub message_upper_address: u32,
     pub msg_data:u32,
-    pub vector_control:u32
+    pub vector_control:u32,
+    pub intid:Option<usize>,
 }
 
 impl MsixTableEntry{
     pub fn activate_irq(&self){
         info!("entry:{:x?}",self);
-        // let interrupt_address = (self.message_address as u64) | ((self.message_upper_address as u64) << 32);
-        // let irq_ptr = unsafe {
-        //     from_raw_parts_mut(interrupt_address as *mut u32, 4)
-        // };
-        // irq_ptr[0] = self.msg_data;
-        // unsafe {
-        //     ptr::write_volatile(interrupt_address as *mut u32, 1);
-        // }
-        inject_irq(0x2001, false);
+        // inject_irq(0x2001, false);
+        match self.intid {
+            Some(x)=>{
+                inject_irq(x, false);
+            }
+            None=>{
+                warn!("this msix vector has not gotten a intid:{:x?}",self);
+            }
+        }
+        // inject_irq(irq_id, is_hardware)
     }
 }
 
@@ -755,31 +760,68 @@ impl MsixTableEntry{
             message_address: 0,
             message_upper_address: 0,
             msg_data: 0, 
-            vector_control: 0 
+            vector_control: 0,
+            intid:None
         }
     }
 }
 
+#[derive(Debug)]
 pub struct MsixTable{
-    table:Vec<MsixTableEntry>
+    table:Vec<MsixTableEntry>,
+    device_id:usize,
+    event_id:Vec<(usize,usize)>,
 }
 
 impl MsixTable{
-    pub fn new(size:usize)->Self{
+    pub fn new(size:usize,deviceid:usize)->Self{
         let mut vec = Vec::new();
         vec.resize(size, MsixTableEntry::dummy());
-        Self { table: vec }
+        Self { 
+            table: vec,
+            device_id: deviceid,
+            event_id:Vec::new()
+        }
     }
 
     pub fn inject_irq(&self,vector_index:usize){
         self.table[vector_index].activate_irq();
+    }
+
+    pub fn intercept_its(&mut self,deviceid:usize,event_id:usize,intid:usize){
+        if deviceid == self.device_id {
+            warn!("MAPTI's deviceid != current deviceid!");
+        }
+        // for i in self.table.iter_mut(){
+        //     if i.msg_data == event_id as u32{
+        //         i.intid = Some(intid);
+        //     }
+        // }
+        self.event_id.push((event_id,intid));
+        // warn!("we can't find a vector with this event_id:0x{:x}",event_id);
+    }
+
+    pub fn init_msix_intid(&mut self,index:usize){
+        // unsafe {
+        //     MAPTI_INTERCEPTOR = None
+        // }
+        // info!("init msix intid Self:{:x?}",self);
+        let selected_vector = &mut self.table[index];
+        for i in self.event_id.iter(){
+            if selected_vector.msg_data as usize == i.0{
+                selected_vector.intid = Some(i.1);
+                break;
+            }
+
+        }
+        
     }
 }
 
 impl AreaInBar for MsixTable{
 
     fn read(&mut self, mmio_ac:&mut MMIOAccess) -> HvResult {
-        info!("misx table read:{:x?}",mmio_ac);
+        // info!("misx table read:{:x?}",mmio_ac);
         // let size = mmio_ac.size;
         let offset = mmio_ac.address;
         // 16 is the size of entry
@@ -800,7 +842,7 @@ impl AreaInBar for MsixTable{
     }
 
     fn write(&mut self,mmio_ac:&MMIOAccess) -> HvResult {
-        info!("msix table write:{:x?}",mmio_ac);
+        // info!("msix table write:{:x?}",mmio_ac);
         if mmio_ac.size != 4{
             warn!("only write with size of 4 would work correctly");
         }
@@ -817,6 +859,7 @@ impl AreaInBar for MsixTable{
                 warn!("access address is misalign!");
             } 
         }
+        self.init_msix_intid(index);
         Ok(())
     }
 }
@@ -929,19 +972,19 @@ impl AreaInBar for VirtioNotifyCap{
 
     fn write(&mut self,mmio_ac:&MMIOAccess) -> HvResult {
         let offset = mmio_ac.address;
-        info!("get into notify:");
-        for i in self.queue_list.iter(){
-            info!("the address registered:0x{:x}",i.0);
-        }
+        // info!("get into notify:");
+        // for i in self.queue_list.iter(){
+        //     info!("the address registered:0x{:x}",i.0);
+        // }
         for i in self.get_queues(offset){
             let desc = i.read().queue_desc;
             let avail = i.read().queue_driver;
             let used = i.read().queue_device;
             i.read().consume_avail_with_zero();
-            VringAvail::show(avail);
-            VringDesc::show(desc, 0, 1);
-            VringUsed::show(used);
-            info!("device get kicked: queue desc address:0x{:x}",desc);
+            // VringAvail::show(avail);
+            // VringDesc::show(desc, 0, 1);
+            // VringUsed::show(used);
+            // info!("device get kicked: queue desc address:0x{:x}",desc);
             fence(core::sync::atomic::Ordering::SeqCst);
             i.read().notify_driver();
         }

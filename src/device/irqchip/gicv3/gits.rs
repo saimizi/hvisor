@@ -20,8 +20,7 @@ use alloc::{sync::Arc, vec::Vec};
 use spin::{mutex::Mutex, Once, RwLock};
 
 use crate::{
-    consts::MAX_ZONE_NUM, device::irqchip::gicv3::gicr::enable_one_lpi, memory::Frame,
-    percpu::this_zone, zone::this_zone_id,
+    consts::MAX_ZONE_NUM, device::irqchip::gicv3::gicr::enable_one_lpi, memory::Frame, pci::vpci_dev::virtio_cap::MAPTI_INTERCEPTOR, percpu::this_zone, zone::this_zone_id
 };
 
 use super::host_gits_base;
@@ -282,6 +281,16 @@ impl Cmdq {
                 new_cmd[2] &= !0xffffu64;
                 new_cmd[2] |= icid & 0xffff;
                 enable_one_lpi((intid - 8192) as _);
+                unsafe {
+                    match MAPTI_INTERCEPTOR.clone() {
+                        Some(x)=>{
+                            x.write().intercept_its(id as usize, event as usize, intid as usize);
+                        }
+                        None => {
+                            warn!("MAPTI_INTERCEPTOR is None!");
+                        }
+                    }
+                }
                 info!(
                     "MAPTI cmd, for device {:#x}, event {:#x} -> vicid {:#x} (icid {:#x}) + intid {:#x}",
                     id >> 32,

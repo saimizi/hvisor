@@ -16,7 +16,7 @@ impl GuestMemory{
     }
 
     pub fn read_obj<T: Copy>(&self,offset:u64)->T{
-        warn!("read from :0x{:x},offset:{:x}",self.ptr,offset);
+        // warn!("read from :0x{:x},offset:{:x}",self.ptr,offset);
         let obj_ptr = self.translate(offset) as *const T;
         unsafe {
             core::ptr::read_unaligned(obj_ptr)
@@ -24,7 +24,7 @@ impl GuestMemory{
     }
 
     pub fn write_obj<T: Copy>(&self,offset:u64,val:T){
-        warn!("write into :0x{:x},offset:{:x}",self.ptr,offset);
+        // warn!("write into :0x{:x},offset:{:x}",self.ptr,offset);
         let obj_ptr = self.translate(offset) as *mut T;
         unsafe {
             core::ptr::write_unaligned(obj_ptr, val);

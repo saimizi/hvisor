@@ -36,7 +36,7 @@ use super::{
 };
 
 use crate::{
-    config::HvPciDevConfig, error::{HvErrorNum, HvResult}, memory::{GuestPhysAddr, MMIOAccess}, pci::vpci_dev::{VpciDevType, virtio_cap::{AreaInBar, BarAreaManager, BarUsageInfo}}
+    config::HvPciDevConfig, device, error::{HvErrorNum, HvResult}, memory::{GuestPhysAddr, MMIOAccess}, pci::vpci_dev::{VpciDevType, virtio_cap::{AreaInBar, BarAreaManager, BarUsageInfo}}
 };
 
 type VirtualPciConfigBits = BitArr!(for BIT_LENTH, in u8, Lsb0);
@@ -192,6 +192,13 @@ impl Bdf {
         } else {
             false
         }
+    }
+
+    pub fn requester_id(&self) -> u16{
+        let bus = self.bus as u16;
+        let device = self.device as u16;
+        let function = self.function as u16;
+        bus << 8 | device << 3 | function
     }
 }
 

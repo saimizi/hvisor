@@ -3,7 +3,7 @@ use spin::rwlock::RwLock;
 
 use crate::pci::vpci_dev::capability_handler::virtio_common_cfg_handler;
 use crate::pci::vpci_dev::standard::mmio_vdev_standard_handler;
-use crate::pci::vpci_dev::virtio_cap::{MsixCap, MsixTable, VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue};
+use crate::pci::vpci_dev::virtio_cap::{MAPTI_INTERCEPTOR, MsixCap, MsixTable, VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue};
 use crate::percpu::this_zone;
 use crate::{error::HvResult, pci::pci_struct::VirtualPciConfigSpace};
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, CapabilityType, PciCapability, PciCapabilityRegion};
@@ -329,7 +329,10 @@ impl VpciDeviceHandler for VirtioRngHandler {
             access.set_bits(0x70..0x90);
         });
         let commcfg = Arc::new(RwLock::new(VirtioPciCommonCfg::new()));
-        let msix_table:Arc<RwLock<MsixTable>> = Arc::new(RwLock::new(MsixTable::new(0x10)));
+        let msix_table:Arc<RwLock<MsixTable>> = Arc::new(RwLock::new(MsixTable::new(0x10,dev.get_bdf().requester_id() as usize)));
+        unsafe {
+            MAPTI_INTERCEPTOR = Some(msix_table.clone());
+        }
         let isrcfg:Arc<RwLock<VirtioISRCap>> = Arc::new(RwLock::new(VirtioISRCap::new()));
         isrcfg.write().set_isr(1);
         let vq:Arc<RwLock<Virtqueue>> = Arc::new(RwLock::new(Virtqueue::new(msix_table.clone())));
@@ -363,6 +366,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
         dev.with_access_mut(|access| {
             access.set_bits(0x34..0x38);
         });
+        // msix_table.write().init_msix_intid();
         // dev.
         dev
     }
@@ -387,7 +391,7 @@ impl VpciDeviceHandler for VirtioRngHandler {
 pub const HANDLER: VirtioRngHandler = VirtioRngHandler;
 
 pub fn rng_mmio_handler(mmio: &mut MMIOAccess, base: usize) -> HvResult {
-    error!("i receive mmio!{:x?},base:{:x?}",mmio,base);
+    // error!("i receive mmio!{:x?},base:{:x?}",mmio,base);
     let zone = this_zone();
     let bus = &zone.read().vpci_bus;
     let (mut dev,mut bar) = (None,0);
