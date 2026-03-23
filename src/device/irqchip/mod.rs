@@ -60,7 +60,17 @@ pub fn gic_send_event(cpu_id: u64, sgi_num: u64) {
         let irm: u64 = 0 << 40;
         let sgi_id: u64 = sgi_num << 24;
         let val: u64 = (aff1 << 16) | (aff2 << 32) | (aff3 << 48) | irm | sgi_id | target_list;
+        unsafe {
+            use core::arch::asm;
+            asm!("dsb ishst");
+        }
         write_sysreg!(icc_sgi1r_el1, val);
+        unsafe {
+            use core::arch::asm;
+
+            asm!("isb");
+        }
+        // write_sysreg!(icc_sgi1r_el1, val);
         debug!("write sgi sys value = {:#x}", val);
     }
     #[cfg(feature = "gicv2")]

@@ -7,12 +7,20 @@ pub struct GuestMemory{
 }
 
 impl GuestMemory{
+    pub const fn dummy()->Self{
+        Self { ptr: 0, size: 0 }
+    }
+
     pub fn new(ptr:usize,size:usize)->Self{
         Self { ptr, size }
     }
 
     pub fn set_ptr(&mut self,ptr:usize){
         self.ptr=ptr;
+    }
+
+    pub fn set_len(&mut self,len:usize){
+        self.size = len;
     }
 
     pub fn read_obj<T: Copy>(&self,offset:u64)->T{
@@ -51,6 +59,10 @@ pub struct GuestSlice<T>{
 
 impl<'a, T:Copy> GuestSlice<T>{
 
+    pub const fn dummy()->Self{
+        Self { mem: GuestMemory::dummy(), len: 0, _phantom: PhantomData }
+    }
+
     pub fn new(base:usize,len:usize) -> Self{
         let memory_size = len*core::mem::size_of::<T>();
         let mem = GuestMemory::new(base, memory_size);
@@ -61,6 +73,17 @@ impl<'a, T:Copy> GuestSlice<T>{
         self.mem.set_ptr(ptr);
     }
 
+    pub fn set_memory(&mut self,ptr:usize,len:usize){
+        self.mem.set_ptr(ptr);
+        self.mem.set_len(len*size_of::<T>());
+        self.len = len;
+
+    }
+
+    pub fn get_addr(&self) -> usize{
+        self.mem.ptr
+    }
+
     pub fn get(&self, index: usize) -> T{
         assert!(index < self.len);
 
@@ -69,6 +92,7 @@ impl<'a, T:Copy> GuestSlice<T>{
     }
 
     pub fn set(&self, index: usize, val:T){
+        // info!("current len:{:x},index:{:x}",self.mem.size,index);
         assert!(index < self.len);
 
         let offset = index * core::mem::size_of::<T>();

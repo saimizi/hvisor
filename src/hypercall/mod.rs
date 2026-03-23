@@ -19,7 +19,7 @@
 use crate::arch::cpu::get_target_cpu;
 use crate::config::{HvZoneConfig, CONFIG_MAGIC_VERSION};
 use crate::consts::{INVALID_ADDRESS, MAX_CPU_NUM, MAX_WAIT_TIMES, PAGE_SIZE};
-use crate::device::virtio_trampoline::{MAX_DEVS, MAX_REQ, VIRTIO_BRIDGE, VIRTIO_IRQS};
+use crate::device::virtio_trampoline::{MAX_DEVS, MAX_REQ, VIRTIO_BRIDGE, VIRTIO_IRQS, VIRTIO_PCI_BRIDGE};
 use crate::error::HvResult;
 use crate::percpu::{get_cpu_data, this_zone, PerCpu};
 use crate::zone::{
@@ -74,7 +74,7 @@ impl<'a> HyperCall<'a> {
         );
         unsafe {
             match code {
-                HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0),
+                HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0,arg1),
                 HyperCallCode::HvVirtioInjectIrq => self.hv_virtio_inject_irq(),
                 HyperCallCode::HvVirtioGetIrq => self.hv_virtio_get_irq(arg0 as *mut u32),
                 HyperCallCode::HvZoneStart => {
@@ -104,17 +104,18 @@ impl<'a> HyperCall<'a> {
     }
 
     // only root zone calls the function and set virtio shared region between el1 and el2.
-    fn hv_virtio_init(&mut self, shared_region_addr: u64) -> HyperCallResult {
+    fn hv_virtio_init(&mut self, shared_region_addr: u64, virtio_pci_region:u64) -> HyperCallResult {
         info!(
-            "handle hvc init virtio, shared_region_addr = {:#x?}",
-            shared_region_addr
+            "handle hvc init virtio, shared_region_addr = {:#x?}, pci_region:{:x}",
+            shared_region_addr,
+            virtio_pci_region
         );
         if !is_this_root_zone() {
             return hv_result_err!(EPERM, "Init virtio over non-root zones: unsupported!");
         }
-
+        let shared_pci_region_addr_pa = self.hv_get_real_pa(virtio_pci_region) as usize;
         let shared_region_addr_pa = self.hv_get_real_pa(shared_region_addr) as usize;
-
+        assert!(shared_pci_region_addr_pa % PAGE_SIZE == 0);
         assert!(shared_region_addr_pa % PAGE_SIZE == 0);
         // let offset = shared_region_addr_pa & (PAGE_SIZE - 1);
         // memory::hv_page_table()
@@ -129,6 +130,9 @@ impl<'a> HyperCall<'a> {
         VIRTIO_BRIDGE
             .lock()
             .set_base_addr(shared_region_addr_pa as _);
+        VIRTIO_PCI_BRIDGE
+            .lock()
+            .set_memory(shared_pci_region_addr_pa,128);
         info!("hvisor device region base is {:#x?}", shared_region_addr_pa);
 
         HyperCallResult::Ok(0)

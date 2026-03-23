@@ -5,7 +5,7 @@ use alloc::{sync::Arc, vec::Vec};
 use bitvec::index::BitSel;
 use spin::rwlock::RwLock;
 
-use crate::{device::irqchip::inject_irq, error::HvResult, memory::{GuestPhysAddr, MMIOAccess, mmio}, pci::{pci_access::Bar, pci_struct::PciCapabilityRegion, vpci_dev::{capability_handler::{self, virtio_common_cfg_handler}, virtio_queue::{AvailRing, DescriptorTable, VirtqUsed, VirtqUsedElem}}}, percpu::this_zone};
+use crate::{device::{irqchip::inject_irq, virtio_trampoline::{VIRTIO_PCI_BRIDGE, VirtioPCIInitInfo}}, error::HvResult, event::{IPI_EVENT_VIRTIO_PCI, send_event}, hypercall::SGI_IPI_ID, memory::{GuestPhysAddr, MMIOAccess, mmio}, pci::{pci_access::Bar, pci_struct::PciCapabilityRegion, vpci_dev::{capability_handler::{self, virtio_common_cfg_handler}, virtio_queue::{AvailRing, DescriptorTable, VirtqUsed, VirtqUsedElem}}}, percpu::this_zone, zone::root_zone};
 
 pub type PciCapabilityHandler = fn (&mut MMIOAccess,usize) -> HvResult;
 
@@ -262,7 +262,7 @@ impl Virtqueue{
             let desc = desc_area.get(avail_ring_content as usize);
             // info!("desc read:{:x?}",desc);
             unsafe {
-                write_bytes(desc.addr as *mut u8, '0' as u8, desc.len as usize);
+                write_bytes(desc.addr as *mut u8, 'Z' as u8, desc.len as usize);
             }
             let used_item = VirtqUsedElem::new(avail_ring_content as u32, desc.len);
             used_area.write_ring(idx as usize, used_item);
@@ -275,6 +275,10 @@ impl Virtqueue{
         used_area.set_idx(avail_idx);
         return Some(());
     }
+
+    pub fn get_init_info(&self)->VirtioPCIInitInfo{
+        VirtioPCIInitInfo::new(self.queue_desc, self.queue_driver ,self.queue_device)
+    }   
 }
 
 const VIRTIO_F_VERSION_1:usize = 32;
@@ -345,14 +349,49 @@ impl VirtioPciCommonCfg{
 }
 
 impl VirtioPciCommonCfg{
+    pub fn init_virtqueue_shared_space(&self){
+        for i in self.queue_list.iter(){
+            let queue_info = i.read().get_init_info();
+            info!("queue_info:{:x?}",queue_info);
+            VIRTIO_PCI_BRIDGE.lock().show_addr();
+            let index = 1;
+            VIRTIO_PCI_BRIDGE
+                .lock()
+                .set_request_index(1,true);
+            VIRTIO_PCI_BRIDGE
+                .lock()
+                .set_request(queue_info, 1);
+
+            send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
+            let mut a = 100000;
+            loop{
+                a -= 1;
+                match a {
+                    0=>{
+                        break;
+                    }
+                    _=>{
+                        continue;
+                    }
+                }
+            }
+            // send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
+            // send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
+        }
+    }
+
     pub fn write_into(&mut self,mmio_ac:&MMIOAccess)->bool{
         let addr = mmio_ac.address;
         let size = mmio_ac.size;
         let value = mmio_ac.value;
-        // info!("----write in common cfg !!! addr:{:x},size:{:x},value:{:x}----",addr,size,value);
+        info!("----write in common cfg !!! addr:{:x},size:{:x},value:{:x}----",addr,size,value);
         if size == 1{
             match addr {
                 0x14 => {
+                    // we use FEATURES_OK to confirm that initialization is completed
+                    if value & 0x04 != 0 {
+                        self.init_virtqueue_shared_space();
+                    }
                     self.device_status = value as u8;
                     return true
                 }
@@ -980,7 +1019,25 @@ impl AreaInBar for VirtioNotifyCap{
             let desc = i.read().queue_desc;
             let avail = i.read().queue_driver;
             let used = i.read().queue_device;
-            i.read().consume_avail_with_zero();
+            let req = VirtioPCIInitInfo::new(desc, avail, used);
+            let used_area = unsafe {
+                from_raw_parts(used as *mut u64, 24)
+            };
+            // info!("before:used[0]:0x{:x}",used_area[0]);
+            // let mut a:usize = 0;
+            info!("after:used[0]:0x{:x}",used_area[0]);
+            VIRTIO_PCI_BRIDGE
+                .lock()
+                .set_request_index(1,false);
+            VIRTIO_PCI_BRIDGE
+                .lock()
+                .set_request(req, 1);
+            send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
+            // i.read().consume_avail_with_zero();
+
+            unsafe {
+                info!("avail given by OS:{:x},hpa:{:x?}",avail,root_zone().read().gpm.page_table_query(avail as usize));
+            }
             // VringAvail::show(avail);
             // VringDesc::show(desc, 0, 1);
             // VringUsed::show(used);

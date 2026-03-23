@@ -21,7 +21,7 @@ use crate::{
     },
     device::{
         irqchip::inject_irq,
-        virtio_trampoline::{handle_virtio_irq, IRQ_WAKEUP_VIRTIO_DEVICE},
+        virtio_trampoline::{IRQ_WAKEUP_VIRTIO_DEVICE, IRQ_WAKEUP_VIRTIO_PCI, handle_virtio_irq},
     },
     percpu::this_cpu_data,
 };
@@ -32,6 +32,7 @@ pub const IPI_EVENT_WAKEUP: usize = 0;
 pub const IPI_EVENT_SHUTDOWN: usize = 1;
 pub const IPI_EVENT_VIRTIO_INJECT_IRQ: usize = 2;
 pub const IPI_EVENT_WAKEUP_VIRTIO_DEVICE: usize = 3;
+pub const IPI_EVENT_VIRTIO_PCI:usize = 4;
 
 static EVENT_MANAGER: Once<EventManager> = Once::new();
 
@@ -131,6 +132,11 @@ pub fn check_events() -> bool {
         }
         Some(IPI_EVENT_WAKEUP_VIRTIO_DEVICE) => {
             inject_irq(IRQ_WAKEUP_VIRTIO_DEVICE, false);
+            true
+        }
+        Some(IPI_EVENT_VIRTIO_PCI) => {
+            info!("IPI_EVENT_VIRTIO_PCI activatied!");
+            inject_irq(IRQ_WAKEUP_VIRTIO_PCI, false);
             true
         }
         Some(IPI_EVENT_CLEAR_INJECT_IRQ)
