@@ -79,7 +79,7 @@ pub const ROOT_ZONE_MEMORY_REGIONS: &[HvConfigMemoryRegion] = &[
 // 35 36 37 38 -> pcie intx#
 // 65 -> ivc
 pub const ROOT_ZONE_IRQS_BITMAP: &[BitmapWord] =
-    &get_irqs_bitmap(&[33, 64, 77, 79, 35, 36, 37, 38, 65]);
+    &get_irqs_bitmap(&[33, 64, 77, 79, 35, 36, 37, 38, 65, 66]);
 
 pub const ROOT_ARCH_ZONE_CONFIG: HvArchZoneConfig = HvArchZoneConfig {
     is_aarch32: 0,

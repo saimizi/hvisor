@@ -1,17 +1,19 @@
 use core::{array::from_fn, ptr::{self, write_bytes}, slice::{from_raw_parts, from_raw_parts_mut}, sync::atomic::fence};
 
 use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use bitvec::index::BitSel;
-use spin::rwlock::RwLock;
+use spin::{Lazy, rwlock::RwLock};
 
-use crate::{device::{irqchip::inject_irq, virtio_trampoline::{VIRTIO_PCI_BRIDGE, VirtioPCIInitInfo}}, error::HvResult, event::{IPI_EVENT_VIRTIO_PCI, send_event}, hypercall::SGI_IPI_ID, memory::{GuestPhysAddr, MMIOAccess, mmio}, pci::{pci_access::Bar, pci_struct::PciCapabilityRegion, vpci_dev::{capability_handler::{self, virtio_common_cfg_handler}, virtio_queue::{AvailRing, DescriptorTable, VirtqUsed, VirtqUsedElem}}}, percpu::this_zone, zone::root_zone};
+use crate::{arch::cpu::{self, this_cpu_id}, config, device::{irqchip::inject_irq, virtio_trampoline::{MAX_DEVS, VIRTIO_PCI_BRIDGE, VirtioPCIConfigInfo, VirtioPCIDataInfo, VirtqueueAreaInfo}}, error::HvResult, event::{IPI_EVENT_VIRTIO_PCI_CONFIG, IPI_EVENT_VIRTIO_PCI_DATA, send_event}, hypercall::SGI_IPI_ID, memory::{GuestPhysAddr, MMIOAccess, mmio}, pci::{pci_access::Bar, pci_struct::PciCapabilityRegion, vpci_dev::{capability_handler::{self, virtio_common_cfg_handler}, virtio_queue::{AvailRing, DescriptorTable, VirtqUsed, VirtqUsedElem}}}, percpu::this_zone, zone::root_zone};
 
 pub type PciCapabilityHandler = fn (&mut MMIOAccess,usize) -> HvResult;
 
 const VIRTQ_DESC_F_NEXT:u16 = 1;
 
 pub static mut MAPTI_INTERCEPTOR:Option<Arc<RwLock<MsixTable>>> = None;
+pub static mut VIRTIO_MSIX_MANAGER:Lazy<Arc<RwLock<VirtioPCIMsixManager>>> = Lazy::new(||
+    Arc::new(RwLock::new(VirtioPCIMsixManager::new())));
 
 fn put_together(src:(u8,u8,u8,u8))->u32{
     let a =(src.0 as u32)<<24 |
@@ -172,7 +174,7 @@ pub struct Virtqueue{
     queue_device:u64,
     queue_notify_data:u16,
     queue_reset:u16,
-    misx_table:Arc<RwLock<MsixTable>>,
+    msix_table:Arc<RwLock<MsixTable>>,
 
     desc_table:Option<DescriptorTable>,
     used_area:Option<VirtqUsed>,
@@ -193,7 +195,7 @@ impl Virtqueue{
             queue_device: 0, 
             queue_notify_data: 0, 
             queue_reset: 0,
-            misx_table:msix,
+            msix_table:msix,
             desc_table:None,
             used_area:None,
             avail_area:None,
@@ -203,7 +205,17 @@ impl Virtqueue{
     }
 
     pub fn notify_driver(&self){
-        self.misx_table.read().inject_irq(self.queue_msix_vector as usize);
+        self.msix_table.read().inject_irq(self.queue_msix_vector as usize);
+    }
+
+    pub fn get_msix_entry(&self)->MsixTableEntry{
+        self.msix_table.read().get_entry(self.queue_msix_vector as usize)
+    }
+
+    pub fn register_interrupt(&self,data_info:VirtioPCIDataInfo){
+        unsafe {
+            VIRTIO_MSIX_MANAGER.write().insert(data_info, self.get_msix_entry());
+        }
     }
 
     pub fn set_desc_area(&mut self){
@@ -276,8 +288,8 @@ impl Virtqueue{
         return Some(());
     }
 
-    pub fn get_init_info(&self)->VirtioPCIInitInfo{
-        VirtioPCIInitInfo::new(self.queue_desc, self.queue_driver ,self.queue_device)
+    pub fn get_area_info(&self)->VirtqueueAreaInfo{
+        VirtqueueAreaInfo::new(self.queue_desc, self.queue_driver ,self.queue_device)
     }   
 }
 
@@ -351,33 +363,36 @@ impl VirtioPciCommonCfg{
 impl VirtioPciCommonCfg{
     pub fn init_virtqueue_shared_space(&self){
         for i in self.queue_list.iter(){
-            let queue_info = i.read().get_init_info();
+            let queue_info = i.read().get_area_info();
             info!("queue_info:{:x?}",queue_info);
-            VIRTIO_PCI_BRIDGE.lock().show_addr();
-            let index = 1;
-            VIRTIO_PCI_BRIDGE
-                .lock()
-                .set_request_index(1,true);
-            VIRTIO_PCI_BRIDGE
-                .lock()
-                .set_request(queue_info, 1);
-
-            send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
-            let mut a = 100000;
-            loop{
-                a -= 1;
-                match a {
-                    0=>{
-                        break;
-                    }
-                    _=>{
-                        continue;
-                    }
-                }
+            let mut config_info = VirtioPCIConfigInfo::dummy();
+            config_info.set_features(self.get_features());
+            config_info.set_dev_id(MAX_DEVS as u16);
+            config_info.set_dtype(4);
+            config_info.set_num_of_queues(self.num_queue);
+            for i in 0..self.num_queue as usize{
+                // let a = self.queue_list[i as usize];
+                config_info.set_vqs(i, self.queue_list[i].read().get_area_info());
             }
+            VIRTIO_PCI_BRIDGE.lock().write_dev_info(config_info);
+            // VIRTIO_PCI_BRIDGE.lock().show_addr();
+            // let index = 1;
+            // VIRTIO_PCI_BRIDGE
+            //     .lock()
+            //     .set_request_index(1,true);
+            // VIRTIO_PCI_BRIDGE
+            //     .lock()
+            //     .set_request(queue_info, 1);
+
+            send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_CONFIG);
+            VIRTIO_PCI_BRIDGE.lock().til_config_finish();
             // send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
             // send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
         }
+    }
+
+    fn get_features(&self)->u64{
+        (self.driver_feature.1 as u64)<<32 | (self.driver_feature.0 as u64)
     }
 
     pub fn write_into(&mut self,mmio_ac:&MMIOAccess)->bool{
@@ -827,6 +842,10 @@ impl MsixTable{
         self.table[vector_index].activate_irq();
     }
 
+    pub fn get_entry(&self,vector_index:usize)->MsixTableEntry{
+        self.table[vector_index].clone()
+    }
+
     pub fn intercept_its(&mut self,deviceid:usize,event_id:usize,intid:usize){
         if deviceid == self.device_id {
             warn!("MAPTI's deviceid != current deviceid!");
@@ -1019,33 +1038,93 @@ impl AreaInBar for VirtioNotifyCap{
             let desc = i.read().queue_desc;
             let avail = i.read().queue_driver;
             let used = i.read().queue_device;
-            let req = VirtioPCIInitInfo::new(desc, avail, used);
+            let req = VirtqueueAreaInfo::new(desc, avail, used);
             let used_area = unsafe {
                 from_raw_parts(used as *mut u64, 24)
             };
             // info!("before:used[0]:0x{:x}",used_area[0]);
             // let mut a:usize = 0;
-            info!("after:used[0]:0x{:x}",used_area[0]);
+            // info!("after:used[0]:0x{:x}",used_area[0]);
+            let info = VirtioPCIDataInfo::new(0, 0);
             VIRTIO_PCI_BRIDGE
-                .lock()
-                .set_request_index(1,false);
-            VIRTIO_PCI_BRIDGE
-                .lock()
-                .set_request(req, 1);
-            send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI);
+                    .lock()
+                    .write_data_info(info);
+            i.read().register_interrupt(info);
+            
+
+            // VIRTIO_PCI_BRIDGE
+            //     .lock()
+            //     .set_request_index(1,false);
+            // VIRTIO_PCI_BRIDGE
+            //     .lock()
+            //     .set_request(req, 1);
+            send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_DATA);
             // i.read().consume_avail_with_zero();
 
-            unsafe {
-                info!("avail given by OS:{:x},hpa:{:x?}",avail,root_zone().read().gpm.page_table_query(avail as usize));
-            }
+            // unsafe {
+            //     info!("avail given by OS:{:x},hpa:{:x?}",avail,root_zone().read().gpm.page_table_query(avail as usize));
+            // }
             // VringAvail::show(avail);
             // VringDesc::show(desc, 0, 1);
             // VringUsed::show(used);
             // info!("device get kicked: queue desc address:0x{:x}",desc);
             fence(core::sync::atomic::Ordering::SeqCst);
-            i.read().notify_driver();
+            // i.read().notify_driver();
         }
         Ok(())
+    }
+}
+
+pub struct VirtioPCIMsixManager{
+    table:BTreeMap<u64,MsixTableEntry>,
+    pending:Vec<u64>
+}
+
+impl VirtioPCIMsixManager{
+    pub const fn new()->Self{
+        Self { table: BTreeMap::new() ,pending: Vec::new()}
+    }
+
+    pub fn insert(&mut self,data_info:VirtioPCIDataInfo,entry:MsixTableEntry){
+        info!("Msix Manager insert:{:x?}",data_info);
+        let data_req_id = data_info.get_identifier();
+        self.table.insert(data_req_id, entry);
+    }
+
+    pub fn add_pending_data_req_id(&mut self,data_req_id:u64){
+        info!("pending data req id add:0x{:x}",data_req_id);
+        self.pending.push(data_req_id);
+    }
+
+    pub fn activate_all_pending_irq(&mut self){
+        let cpu_id = (this_cpu_id() as u64) << 32;
+        let mut target = Vec::new();
+        let mut i = 0;
+        while i < self.pending.len(){
+            if (self.pending[i] & 0x0000_ffff_0000_0000) == cpu_id{
+                target.push(self.pending.swap_remove(i));
+            }else{
+                i+=1;
+            }
+        }
+
+        for j in target{
+            self.activate_irq(j);
+        }
+    }
+
+    pub fn activate_irq(&mut self,data_req_id:u64){
+        
+        let entry = self.table.remove(&data_req_id);
+        info!("irq activate!!! entry:{:x?},data_req_id:0x{:x}",entry,data_req_id);
+        match entry {
+            Some(x)=>{
+                x.activate_irq();
+            }
+            None=>{
+                return;
+            }
+        }
     }
 }
 

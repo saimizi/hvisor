@@ -21,13 +21,14 @@ use crate::config::{HvZoneConfig, CONFIG_MAGIC_VERSION};
 use crate::consts::{INVALID_ADDRESS, MAX_CPU_NUM, MAX_WAIT_TIMES, PAGE_SIZE};
 use crate::device::virtio_trampoline::{MAX_DEVS, MAX_REQ, VIRTIO_BRIDGE, VIRTIO_IRQS, VIRTIO_PCI_BRIDGE};
 use crate::error::HvResult;
+use crate::pci::vpci_dev::virtio_cap::VIRTIO_MSIX_MANAGER;
 use crate::percpu::{get_cpu_data, this_zone, PerCpu};
 use crate::zone::{
     add_zone, all_zones_info, find_zone, is_this_root_zone, remove_zone, this_zone_id, zone_create,
     ZoneInfo,
 };
 
-use crate::event::{send_event, IPI_EVENT_SHUTDOWN, IPI_EVENT_VIRTIO_INJECT_IRQ, IPI_EVENT_WAKEUP};
+use crate::event::{IPI_EVENT_SHUTDOWN, IPI_EVENT_VIRTIO_INJECT_IRQ, IPI_EVENT_VIRTIO_PCI_DONE, IPI_EVENT_WAKEUP, send_event};
 use core::convert::TryFrom;
 use core::sync::atomic::{fence, Ordering};
 use numeric_enum_macro::numeric_enum;
@@ -45,6 +46,7 @@ numeric_enum! {
         HvClearInjectIrq = 20,
         HvIvcInfo = 5,
         HvConfigCheck = 6,
+        HvVirtioPCIDone = 7,
     }
 }
 pub const SGI_IPI_ID: u64 = 7;
@@ -95,6 +97,7 @@ impl<'a> HyperCall<'a> {
                 }
                 HyperCallCode::HvIvcInfo => self.hv_ivc_info(arg0),
                 HyperCallCode::HvConfigCheck => self.hv_zone_config_check(arg0 as *mut u64),
+                HyperCallCode::HvVirtioPCIDone => self.hv_virtio_pci_done(arg0),
                 _ => {
                     warn!("hypercall id={} unsupported!", code as u64);
                     Ok(0)
@@ -132,7 +135,7 @@ impl<'a> HyperCall<'a> {
             .set_base_addr(shared_region_addr_pa as _);
         VIRTIO_PCI_BRIDGE
             .lock()
-            .set_memory(shared_pci_region_addr_pa,128);
+            .init(shared_pci_region_addr_pa);
         info!("hvisor device region base is {:#x?}", shared_region_addr_pa);
 
         HyperCallResult::Ok(0)
@@ -321,5 +324,15 @@ impl<'a> HyperCall<'a> {
         }
 
         HyperCallResult::Ok(core::cmp::min(cnt as _, zones_info.len()))
+    }
+
+    fn hv_virtio_pci_done(&mut self,data_req_id:u64)->HyperCallResult{
+        let cpu_id = (data_req_id & 0x0000_ffff_0000_0000) >> 32;
+        
+        unsafe {
+            VIRTIO_MSIX_MANAGER.write().add_pending_data_req_id(data_req_id);
+        }
+        send_event(cpu_id as usize, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_DONE);
+        HyperCallResult::Ok(0)   
     }
 }

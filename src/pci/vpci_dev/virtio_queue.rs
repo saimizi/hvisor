@@ -4,6 +4,7 @@ use core::{marker::PhantomData, mem::size_of};
 pub struct GuestMemory{
     ptr:usize,
     size:usize,
+    
 }
 
 impl GuestMemory{

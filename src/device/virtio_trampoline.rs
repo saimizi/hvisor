@@ -20,7 +20,7 @@ use crate::device::irqchip::inject_irq;
 use crate::event::send_event;
 use crate::event::IPI_EVENT_WAKEUP_VIRTIO_DEVICE;
 use crate::hypercall::SGI_IPI_ID;
-use crate::pci::vpci_dev::virtio_queue::GuestSlice;
+use crate::pci::vpci_dev::virtio_queue::{GuestMemory, GuestSlice};
 use crate::zone::root_zone;
 use crate::zone::this_zone_id;
 use crate::{error::HvResult, memory::MMIOAccess};
@@ -36,16 +36,18 @@ use spin::Mutex;
 pub static VIRTIO_IRQS: Mutex<BTreeMap<usize, [u64; MAX_DEVS + 1]>> = Mutex::new(BTreeMap::new());
 // Controller of the shared memory the root linux's virtio device and hvisor shares.
 pub static VIRTIO_BRIDGE: Mutex<VirtioBridgeRegion> = Mutex::new(VirtioBridgeRegion::default());
-pub static VIRTIO_PCI_BRIDGE: Mutex<VirtioPCIBridgeRegion> = Mutex::new(GuestSlice::dummy());
+pub static VIRTIO_PCI_BRIDGE: Mutex<VirtioPCIBridge> = Mutex::new(VirtioPCIBridge::dummy());
 
 const QUEUE_NOTIFY: usize = 0x50;
 pub const MAX_REQ: u32 = 32;
 pub const MAX_DEVS: usize = 8; // Attention: The max virtio-dev number for vm is 8 (loongarch64 needs 3 consoles and 3 disks for zgclab project).
 pub const MAX_CPUS: usize = 32;
+pub const MAX_VQ: usize = 16;
 
 #[cfg(all(not(target_arch = "riscv64"), not(target_arch = "x86_64")))]
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
-pub const IRQ_WAKEUP_VIRTIO_PCI:usize = 32 + 0x21;
+pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG:usize = 32 + 0x21;
+pub const IRQ_WAKEUP_VIRTIO_PCI_DATA:usize = 32 + 0x22;
 #[cfg(target_arch = "riscv64")]
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x20;
 #[cfg(target_arch = "x86_64")]
@@ -237,28 +239,141 @@ impl VirtioBridgeRegion {
 
 #[repr(C)]
 #[derive(Clone, Copy,Debug)]
-pub struct VirtioPCIInitInfo{
+pub struct VirtqueueAreaInfo{
     pub desc_area: u64,
     pub avail_area: u64,
     pub used_area: u64
 }
 
-impl VirtioPCIInitInfo{
+impl VirtqueueAreaInfo{
     pub fn new(desc:u64,avail:u64,used:u64)->Self{
         Self { desc_area: desc, avail_area: avail, used_area: used }
     }
+
+    pub fn dummy()->Self{
+        Self { desc_area: 0, avail_area: 0, used_area: 0 }
+    }
 }
+
+
 
 // pub struct VirtioPCIBridge{
 //     req_list:[VirtioPCIReq;128]
 // }
 
-type VirtioPCIBridgeRegion = GuestSlice<VirtioPCIInitInfo>;
+type VirtioPCIBridgeRegion = GuestSlice<VirtqueueAreaInfo>;
+
+#[repr(C)]
+#[derive(Clone, Copy,Debug)]
+pub struct VirtioPCIConfigInfo{
+    features:u64,
+    dev_id:u16,
+    num_of_queues:u16,
+    dtype:u16,
+    padding:u16,
+    vqs:[VirtqueueAreaInfo;MAX_VQ],
+}
+
+impl VirtioPCIConfigInfo{
+    pub fn dummy()->Self{
+        Self { features: 0, dev_id: 0, num_of_queues: 0, dtype: 0,padding:0, vqs: [VirtqueueAreaInfo::dummy();16] }
+    }
+
+    pub fn set_features(&mut self,val:u64){
+        self.features = val;
+    }
+
+    pub fn set_dev_id(&mut self,val:u16){
+        self.dev_id = val;
+    }
+
+    pub fn set_num_of_queues(&mut self,val:u16){
+        self.num_of_queues = val;
+    }
+
+    pub fn set_dtype(&mut self,val:u16){
+        self.dtype = val;
+    }
+
+    pub fn set_vqs(&mut self,idx:usize,val:VirtqueueAreaInfo){
+        if idx >= MAX_VQ{
+            error!("It's illegal to have idx:0x{:x} exceeding MAX_VQ",idx);
+            return;
+        }
+        self.vqs[idx] = val;
+    }
+
+}
+
+#[repr(C)]
+#[derive(Copy,Clone,Debug)]
+pub struct VirtioPCIDataInfo{
+    dev_id:u16,
+    queue_id:u16,
+    cpu_id:u16,
+    _padding:u16
+}
+
+impl VirtioPCIDataInfo{
+    pub fn new(dev_id:u16,queue_id:u16)->Self{
+        let cpu_id = this_cpu_id() as u16;
+        Self { dev_id, queue_id ,cpu_id,_padding:0xff}
+    }
+
+    pub fn get_identifier(&self)->u64{
+        (self.dev_id as u64) | ((self.queue_id as u64) << 16) | ((self.cpu_id as u64) << 32)
+    }
+}
+
+pub struct VirtioPCIBridge {
+    config:GuestMemory,
+    // config:VirtioPCIConfigInfo,
+    data:GuestMemory,
+    // data:VirtioPCIConfigInfo,
+}
+
+impl VirtioPCIBridge{
+    pub const fn dummy()->Self{
+        Self { config: GuestMemory::dummy(), data: GuestMemory::dummy() }
+    }
+
+    pub fn init(&mut self,addr:usize){
+        let size_of_config_info = 2*4+8+24*MAX_VQ;
+        self.config.set_ptr(addr);
+        self.config.set_len(size_of_config_info);
+        self.data.set_ptr(addr + size_of_config_info);
+        self.data.set_len(2*4);
+    }
+
+    pub fn write_dev_info(&mut self,config:VirtioPCIConfigInfo){
+        self.config.write_obj(0, config);
+    }
+
+    pub fn read_dev_info(&self)->VirtioPCIConfigInfo{
+        self.config.read_obj(0)
+    }
+
+    pub fn write_data_info(&mut self,data_info:VirtioPCIDataInfo){
+        self.data.write_obj(0,data_info );
+    }
+
+    pub fn til_config_finish(&self){
+        let mut info:VirtioPCIConfigInfo = self.config.read_obj(0);
+        while info.dev_id == MAX_DEVS as u16{
+            for _ in 0..1000{
+
+            }
+            info = self.config.read_obj(0);
+        }
+    }
+}
+
+
 
 impl VirtioPCIBridgeRegion{
     pub fn set_request_index(&self,index:u64,is_config:bool){
         let avail_area = if is_config{0}else {1};
-        let request_index = VirtioPCIInitInfo{desc_area:index,avail_area,used_area:0};
+        let request_index = VirtqueueAreaInfo{desc_area:index,avail_area,used_area:0};
         self.set(0, request_index);
     }
 
@@ -266,7 +381,7 @@ impl VirtioPCIBridgeRegion{
         return 1;
     }
 
-    pub fn set_request(&self,req:VirtioPCIInitInfo,slot_index:u64){
+    pub fn set_request(&self,req:VirtqueueAreaInfo,slot_index:u64){
         self.set(slot_index as usize, req);
     }
 

@@ -15,15 +15,12 @@
 //
 #![allow(unused)]
 use crate::{
-    arch::ipi::{arch_check_events, arch_prepare_send_event, arch_send_event},
-    consts::{
+    arch::ipi::{arch_check_events, arch_prepare_send_event, arch_send_event}, consts::{
         IPI_EVENT_CLEAR_INJECT_IRQ, IPI_EVENT_SEND_IPI, IPI_EVENT_UPDATE_HART_LINE, MAX_CPU_NUM,
-    },
-    device::{
+    }, device::{
         irqchip::inject_irq,
-        virtio_trampoline::{IRQ_WAKEUP_VIRTIO_DEVICE, IRQ_WAKEUP_VIRTIO_PCI, handle_virtio_irq},
-    },
-    percpu::this_cpu_data,
+        virtio_trampoline::{IRQ_WAKEUP_VIRTIO_DEVICE, IRQ_WAKEUP_VIRTIO_PCI_CONFIG, IRQ_WAKEUP_VIRTIO_PCI_DATA, VIRTIO_PCI_BRIDGE, handle_virtio_irq},
+    }, pci::vpci_dev::virtio_cap::VIRTIO_MSIX_MANAGER, percpu::this_cpu_data
 };
 use alloc::{collections::VecDeque, vec::Vec};
 use spin::{Mutex, Once};
@@ -32,7 +29,9 @@ pub const IPI_EVENT_WAKEUP: usize = 0;
 pub const IPI_EVENT_SHUTDOWN: usize = 1;
 pub const IPI_EVENT_VIRTIO_INJECT_IRQ: usize = 2;
 pub const IPI_EVENT_WAKEUP_VIRTIO_DEVICE: usize = 3;
-pub const IPI_EVENT_VIRTIO_PCI:usize = 4;
+pub const IPI_EVENT_VIRTIO_PCI_CONFIG:usize = 4;
+pub const IPI_EVENT_VIRTIO_PCI_DATA:usize = 5;
+pub const IPI_EVENT_VIRTIO_PCI_DONE:usize = 6;
 
 static EVENT_MANAGER: Once<EventManager> = Once::new();
 
@@ -134,9 +133,21 @@ pub fn check_events() -> bool {
             inject_irq(IRQ_WAKEUP_VIRTIO_DEVICE, false);
             true
         }
-        Some(IPI_EVENT_VIRTIO_PCI) => {
+        Some(IPI_EVENT_VIRTIO_PCI_CONFIG) => {
             info!("IPI_EVENT_VIRTIO_PCI activatied!");
-            inject_irq(IRQ_WAKEUP_VIRTIO_PCI, false);
+            inject_irq(IRQ_WAKEUP_VIRTIO_PCI_CONFIG, false);
+            true
+        }
+        Some(IPI_EVENT_VIRTIO_PCI_DATA)=>{
+            info!("IPI_EVENT_VIRTIO_PCI_DATA activatied!");
+            inject_irq(IRQ_WAKEUP_VIRTIO_PCI_DATA, false);
+            true
+        }
+        Some(IPI_EVENT_VIRTIO_PCI_DONE)=>{
+            
+            unsafe {
+                VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
+            }
             true
         }
         Some(IPI_EVENT_CLEAR_INJECT_IRQ)
