@@ -28,7 +28,7 @@ use super::{
     PciConfigAddress,
 };
 
-use crate::error::HvResult;
+use crate::{error::HvResult, memory::MMIOAccess};
 
 pub type VendorId = u16;
 pub type DeviceId = u16;

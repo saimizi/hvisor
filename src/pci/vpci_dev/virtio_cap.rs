@@ -1,11 +1,11 @@
 use core::{array::from_fn, ptr::{self, write_bytes}, slice::{from_raw_parts, from_raw_parts_mut}, sync::atomic::fence};
 
-use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
+// use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
 use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use bitvec::index::BitSel;
 use spin::{Lazy, rwlock::RwLock};
 
-use crate::{arch::cpu::{self, this_cpu_id}, config, device::{irqchip::inject_irq, virtio_trampoline::{MAX_DEVS, VIRTIO_PCI_BRIDGE, VirtioPCIConfigInfo, VirtioPCIDataInfo, VirtqueueAreaInfo}}, error::HvResult, event::{IPI_EVENT_VIRTIO_PCI_CONFIG, IPI_EVENT_VIRTIO_PCI_DATA, send_event}, hypercall::SGI_IPI_ID, memory::{GuestPhysAddr, MMIOAccess, mmio}, pci::{pci_access::Bar, pci_struct::PciCapabilityRegion, vpci_dev::{capability_handler::{self, virtio_common_cfg_handler}, virtio_queue::{AvailRing, DescriptorTable, VirtqUsed, VirtqUsedElem}}}, percpu::this_zone, zone::root_zone};
+use crate::{arch::cpu::{self, this_cpu_id}, config, device::{irqchip::inject_irq, virtio_trampoline::{MAX_DEVS, VIRTIO_PCI_BRIDGE, VirtioPCIConfigInfo, VirtioPCIDataInfo, VirtqueueAreaInfo}}, error::HvResult, event::{IPI_EVENT_VIRTIO_PCI_CONFIG, IPI_EVENT_VIRTIO_PCI_DATA, send_event}, hypercall::SGI_IPI_ID, memory::{GuestPhysAddr, MMIOAccess, mmio}, pci::{pci_access::Bar, pci_struct::PciCapabilityRegion, vpci_dev::{capability_handler::{self, virtio_common_cfg_handler}, virtio_queue::{AvailRing, DescriptorTable, VirtqUsed, VirtqUsedElem}}}};
 
 pub type PciCapabilityHandler = fn (&mut MMIOAccess,usize) -> HvResult;
 

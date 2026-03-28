@@ -17,10 +17,10 @@ use core::ptr;
 
 use alloc::{sync::Arc, vec::Vec};
 use spin::{mutex::Mutex, Once, RwLock};
-
 use crate::{
     consts::MAX_ZONE_NUM, cpu_data::this_zone, device::irqchip::gicv3::gicr::enable_one_lpi,
     memory::Frame,
+    pci::vpci_dev::virtio_cap::MAPTI_INTERCEPTOR
 };
 
 use super::host_gits_base;

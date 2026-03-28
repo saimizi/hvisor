@@ -571,6 +571,7 @@ fn handle_config_space_access(
             }
             true => {
                 // Emulation access path
+                
                 pci_log!(
                     "emu vbdf {:#?} reg 0x{:x} try {} {}",
                     vbdf,
@@ -615,6 +616,7 @@ fn handle_config_space_access(
                     }
                     _ => {
                         // virt pci dev
+                        // info!("------------emulation access!!!--------------");
                         if let Some(val) =
                             handle_virt_pci_request(dev, offset, size, value, is_write, dev_type)?
                         {

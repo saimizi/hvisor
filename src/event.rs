@@ -17,10 +17,7 @@
 use crate::{
     arch::ipi::{arch_check_events, arch_prepare_send_event, arch_send_event}, consts::{
         IPI_EVENT_CLEAR_INJECT_IRQ, IPI_EVENT_SEND_IPI, IPI_EVENT_UPDATE_HART_LINE, MAX_CPU_NUM,
-    },
-    cpu_data::this_cpu_data,
-    device::{irqchip::inject_irq, virtio_trampoline::handle_virtio_irq},
-    platform::IRQ_WAKEUP_VIRTIO_DEVICE,
+    }, cpu_data::this_cpu_data, device::{irqchip::inject_irq, virtio_trampoline::handle_virtio_irq}, pci::vpci_dev::virtio_cap::VIRTIO_MSIX_MANAGER, platform::{IRQ_WAKEUP_VIRTIO_DEVICE,IRQ_WAKEUP_VIRTIO_PCI_CONFIG,IRQ_WAKEUP_VIRTIO_PCI_DATA}
 };
 use alloc::{collections::VecDeque, vec::Vec};
 use spin::Mutex;

@@ -27,8 +27,7 @@ use crate::{
     hypercall::SGI_IPI_ID,
 };
 use crate::{
-    arch::cpu::this_cpu_id, consts::MAX_WAIT_TIMES, device::irqchip::inject_irq, error::HvResult,
-    memory::MMIOAccess, zone::this_zone_id,
+    arch::cpu::this_cpu_id, consts::MAX_WAIT_TIMES, device::irqchip::inject_irq, error::HvResult, memory::MMIOAccess, pci::vpci_dev::virtio_queue::GuestMemory, zone::this_zone_id
 };
 use alloc::collections::BTreeMap;
 use core::{
@@ -53,10 +52,10 @@ pub const MAX_DEVS: usize = 8; // Attention: The max virtio-dev number for vm is
 pub const MAX_CPUS: usize = 32;
 pub const MAX_VQ: usize = 16;
 
-#[cfg(all(not(target_arch = "riscv64"), not(target_arch = "x86_64")))]
-pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
-pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG:usize = 32 + 0x21;
-pub const IRQ_WAKEUP_VIRTIO_PCI_DATA:usize = 32 + 0x22;
+// #[cfg(all(not(target_arch = "riscv64"), not(target_arch = "x86_64")))]
+// pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
+// pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG:usize = 32 + 0x21;
+// pub const IRQ_WAKEUP_VIRTIO_PCI_DATA:usize = 32 + 0x22;
 #[cfg(target_arch = "riscv64")]
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x20;
 #[cfg(target_arch = "x86_64")]
@@ -65,6 +64,11 @@ pub const MAX_BACKOFF: usize = 1024;
 
 #[cfg(not(target_arch = "loongarch64"))]
 use crate::platform::IRQ_WAKEUP_VIRTIO_DEVICE;
+
+// #[cfg(feature = "gicv3")]
+// use crate::platform::IRQ_WAKEUP_VIRTIO_PCI_CONFIG;
+// use crate::platform::IRQ_WAKEUP_VIRTIO_PCI_DATA;
+
 // #[cfg(all(not(target_arch = "riscv64"), not(target_arch = "x86_64")))]
 // pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
 // #[cfg(target_arch = "riscv64")]
@@ -363,7 +367,7 @@ impl VirtqueueAreaInfo{
 //     req_list:[VirtioPCIReq;128]
 // }
 
-type VirtioPCIBridgeRegion = GuestSlice<VirtqueueAreaInfo>;
+// type VirtioPCIBridgeRegion = GuestSlice<VirtqueueAreaInfo>;
 
 #[repr(C)]
 #[derive(Clone, Copy,Debug)]
@@ -451,9 +455,9 @@ impl VirtioPCIBridge{
         self.config.write_obj(0, config);
     }
 
-    pub fn read_dev_info(&self)->VirtioPCIConfigInfo{
-        self.config.read_obj(0)
-    }
+    // pub fn read_dev_info(&self)->VirtioPCIConfigInfo{
+    //     self.config.read_obj(0)
+    // }
 
     pub fn write_data_info(&mut self,data_info:VirtioPCIDataInfo){
         self.data.write_obj(0,data_info );
@@ -472,25 +476,25 @@ impl VirtioPCIBridge{
 
 
 
-impl VirtioPCIBridgeRegion{
-    pub fn set_request_index(&self,index:u64,is_config:bool){
-        let avail_area = if is_config{0}else {1};
-        let request_index = VirtqueueAreaInfo{desc_area:index,avail_area,used_area:0};
-        self.set(0, request_index);
-    }
+// impl VirtioPCIBridgeRegion{
+//     pub fn set_request_index(&self,index:u64,is_config:bool){
+//         let avail_area = if is_config{0}else {1};
+//         let request_index = VirtqueueAreaInfo{desc_area:index,avail_area,used_area:0};
+//         self.set(0, request_index);
+//     }
 
-    pub fn find_request_slot(&self)->u64{
-        return 1;
-    }
+//     pub fn find_request_slot(&self)->u64{
+//         return 1;
+//     }
 
-    pub fn set_request(&self,req:VirtqueueAreaInfo,slot_index:u64){
-        self.set(slot_index as usize, req);
-    }
+//     pub fn set_request(&self,req:VirtqueueAreaInfo,slot_index:u64){
+//         self.set(slot_index as usize, req);
+//     }
 
-    pub fn show_addr(&self){
-        info!("addr:{:x}",self.get_addr());
-    }
-}
+//     pub fn show_addr(&self){
+//         info!("addr:{:x}",self.get_addr());
+//     }
+// }
 
 /// El1 and EL2 shared region for virtio requests and results.
 #[repr(C)]

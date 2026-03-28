@@ -1,10 +1,11 @@
 use alloc::sync::Arc;
 use spin::rwlock::RwLock;
 
+use crate::cpu_data::this_zone;
 use crate::pci::vpci_dev::capability_handler::virtio_common_cfg_handler;
 use crate::pci::vpci_dev::standard::mmio_vdev_standard_handler;
 use crate::pci::vpci_dev::virtio_cap::{MAPTI_INTERCEPTOR, MsixCap, MsixTable, VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue};
-use crate::percpu::this_zone;
+// use crate::percpu::this_zone;
 use crate::{error::HvResult, pci::pci_struct::VirtualPciConfigSpace};
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, CapabilityType, PciCapability, PciCapabilityRegion};
 use crate::pci::pci_access::{BaseClass, DeviceId, DeviceRevision, EndpointField, Interface, PciMemType, SubClass, VendorId};
@@ -360,7 +361,8 @@ pub const HANDLER: VirtioRngHandler = VirtioRngHandler;
 pub fn rng_mmio_handler(mmio: &mut MMIOAccess, base: usize) -> HvResult {
     // error!("i receive mmio!{:x?},base:{:x?}",mmio,base);
     let zone = this_zone();
-    let bus = &zone.read().vpci_bus;
+    let zone_lock = zone.read();
+    let bus = zone_lock.vpci_bus();
     let (mut dev,mut bar) = (None,0);
     for (b,i) in bus.read_devs(){
         if let Some(res) = i.is_my_bar_addr(base) {

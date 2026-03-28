@@ -179,6 +179,7 @@ impl Zone {
         let mut guard = GLOBAL_PCIE_LIST.lock();
         for target_pci_config in pci_config {
             // Skip empty config
+            info!("pci config loop");
             if target_pci_config.ecam_base == 0 {
                 continue;
             }
@@ -227,6 +228,7 @@ impl Zone {
              *      then the function number of the current vBDF should be set to 0.
              */
             for dev_config in &filtered_devices {
+                info!("dev config loop entered:{:?}",dev_config.dev_type);
                 let bdf = Bdf::new_from_config(*dev_config);
                 let bus = bdf.bus();
                 let device = bdf.device();
@@ -275,6 +277,7 @@ impl Zone {
 
                 // Insert device into vpci_bus with calculated vbdf
                 if let Some(dev) = guard.get(&bdf) {
+                    info!("caught by guard!");
                     if bdf.is_host_bridge(dev.read().get_host_bdf().bus())
                         || dev.with_config_value(|config_value| -> bool {
                             config_value.get_class().0 == 0x6
@@ -294,6 +297,7 @@ impl Zone {
                     #[cfg(feature = "ecam_pcie")]
                     {
                         let dev_type = dev_config.dev_type;
+                        warn!("dev_type:{:?}",dev_config);
                         match dev_type {
                             VpciDevType::Physical => {
                                 warn!("can not find dev {:#?}", bdf);
