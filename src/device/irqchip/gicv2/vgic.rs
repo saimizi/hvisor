@@ -15,6 +15,7 @@
 //    Hangqi Ren <2572131118@qq.com>
 use crate::arch::zone::{GicConfig, Gicv2Config, HvArchZoneConfig};
 use crate::config::{BitmapWord, CONFIG_INTERRUPTS_BITMAP_BITS_PER_WORD};
+use crate::cpu_data::this_zone;
 use crate::device::irqchip::gicv2::gicd::{
     get_max_int_num, GICD, GICD_CTRL_REG_OFFSET, GICD_ICACTIVER_REG_OFFSET,
     GICD_ICENABLER_REG_OFFSET, GICD_ICFGR_REG_OFFSET, GICD_ICPENDR_REG_OFFSET,
@@ -28,7 +29,6 @@ use crate::device::irqchip::gicv2::gicd::{
 use crate::device::irqchip::gicv2::GICV2;
 use crate::error::HvResult;
 use crate::memory::{mmio_perform_access, MMIOAccess, MemFlags, MemoryRegion};
-use crate::percpu::this_zone;
 /// This file defines and implements the functional functions of virtual gicv2.
 /// author: ForeverYolo
 /// reference:
@@ -40,6 +40,8 @@ const GICV2_REG_WIDTH: usize = 4;
 impl Zone {
     // trap all Guest OS accesses to the GIC Distributor registers.
     pub fn vgicv2_mmio_init(&mut self, arch: &HvArchZoneConfig) {
+        let zone_id = self.id();
+        let mut inner = self.write();
         match arch.gic_config {
             GicConfig::Gicv3(_) => {
                 panic!("GICv3 is not supported in this version of hvisor");
@@ -48,8 +50,8 @@ impl Zone {
                 if gicv2_config.gicd_base == 0 {
                     panic!("vgicv2_mmio_init: gicd_base is null");
                 }
-                info!("Initializing GICv2 MMIO regions for zone {}", self.id);
-                self.mmio_region_register(
+                info!("Initializing GICv2 MMIO regions for zone {}", zone_id);
+                inner.mmio_region_register(
                     gicv2_config.gicd_base,
                     gicv2_config.gicd_size,
                     vgicv2_dist_handler,
@@ -61,6 +63,8 @@ impl Zone {
 
     // remap the GIC CPU interface register address space to point to the GIC virtual CPU interface registers.
     pub fn vgicv2_remap_init(&mut self, arch: &HvArchZoneConfig) {
+        let zone_id = self.id();
+        let mut inner = self.write();
         match arch.gic_config {
             GicConfig::Gicv3(_) => {
                 panic!("GICv3 is not supported in this version of hvisor");
@@ -78,10 +82,11 @@ impl Zone {
                 }
                 info!(
                     "Remaping GICv2 GICV MMIO regions to GICC MMIO regions for zone {}",
-                    self.id
+                    zone_id
                 );
                 // map gicv memory region to gicc memory region.
-                self.gpm
+                inner
+                    .gpm_mut()
                     .insert(MemoryRegion::new_with_offset_mapper(
                         gicv2_config.gicc_base,
                         gicv2_config.gicv_base,
@@ -95,8 +100,10 @@ impl Zone {
 
     // store the interrupt number in the irq_bitmap.
     pub fn irq_bitmap_init(&mut self, irqs_bitmap: &[BitmapWord]) {
+        let zone_id = self.id();
+        let mut inner = self.write();
         // Enable each cpu's sgi and ppi access permission
-        self.irq_bitmap[0] = 0xffff_ffff;
+        inner.irq_bitmap_mut()[0] = 0xffff_ffff;
 
         for i in 0..irqs_bitmap.len() {
             let word = irqs_bitmap[i];
@@ -104,30 +111,25 @@ impl Zone {
             for j in 0..CONFIG_INTERRUPTS_BITMAP_BITS_PER_WORD {
                 if ((word >> j) & 1) == 1 {
                     let irq_id = (i * CONFIG_INTERRUPTS_BITMAP_BITS_PER_WORD + j) as u32;
-                    self.insert_irq_to_bitmap(irq_id);
+                    assert!(irq_id < get_max_int_num() as u32);
+                    let irq_index = irq_id / 32;
+                    let irq_bit = irq_id % 32;
+                    inner.irq_bitmap_mut()[irq_index as usize] |= 1 << irq_bit;
                 }
             }
         }
 
-        for (index, &word) in self.irq_bitmap.iter().enumerate() {
+        for (index, &word) in inner.irq_bitmap().iter().enumerate() {
             for bit_position in 0..32 {
                 if word & (1 << bit_position) != 0 {
                     let interrupt_number = index * 32 + bit_position;
                     info!(
                         "Found interrupt in Zone {} irq_bitmap: {}",
-                        self.id, interrupt_number
+                        zone_id, interrupt_number
                     );
                 }
             }
         }
-    }
-
-    // insert the interrupt number into the irq_bitmap.
-    fn insert_irq_to_bitmap(&mut self, irq: u32) {
-        assert!(irq < get_max_int_num() as u32);
-        let irq_index = irq / 32;
-        let irq_bit = irq % 32;
-        self.irq_bitmap[irq_index as usize] |= 1 << irq_bit;
     }
 }
 

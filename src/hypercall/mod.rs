@@ -17,20 +17,17 @@
 #![allow(unreachable_patterns)]
 
 use crate::arch::cpu::get_target_cpu;
-use crate::config::{HvZoneConfig, CONFIG_MAGIC_VERSION};
+use crate::config::HvZoneConfig;
 use crate::consts::{INVALID_ADDRESS, MAX_CPU_NUM, MAX_WAIT_TIMES, PAGE_SIZE};
-use crate::device::virtio_trampoline::{MAX_DEVS, MAX_REQ, VIRTIO_BRIDGE, VIRTIO_IRQS, VIRTIO_PCI_BRIDGE};
+use crate::cpu_data::{get_cpu_data, PerCpu};
+use crate::device::virtio_trampoline::{MAX_DEVS, VIRTIO_BRIDGE, VIRTIO_IRQS};
 use crate::error::HvResult;
-use crate::pci::vpci_dev::virtio_cap::VIRTIO_MSIX_MANAGER;
-use crate::percpu::{get_cpu_data, this_zone, PerCpu};
 use crate::zone::{
-    add_zone, all_zones_info, find_zone, is_this_root_zone, remove_zone, this_zone_id, zone_create,
-    ZoneInfo,
+    add_zone, all_zones_info, find_zone, is_this_root_zone, remove_zone, zone_create, ZoneInfo,
 };
 
 use crate::event::{IPI_EVENT_SHUTDOWN, IPI_EVENT_VIRTIO_INJECT_IRQ, IPI_EVENT_VIRTIO_PCI_DONE, IPI_EVENT_WAKEUP, send_event};
 use core::convert::TryFrom;
-use core::sync::atomic::{fence, Ordering};
 use numeric_enum_macro::numeric_enum;
 
 numeric_enum! {
@@ -130,12 +127,10 @@ impl<'a> HyperCall<'a> {
         // 		MemFlags::READ | MemFlags::WRITE,
         // 	))?;
         // TODO: flush tlb
-        VIRTIO_BRIDGE
-            .lock()
-            .set_base_addr(shared_region_addr_pa as _);
         VIRTIO_PCI_BRIDGE
             .lock()
             .init(shared_pci_region_addr_pa);
+        VIRTIO_BRIDGE.set_base_addr(shared_region_addr_pa as _);
         info!("hvisor device region base is {:#x?}", shared_region_addr_pa);
 
         HyperCallResult::Ok(0)
@@ -150,20 +145,14 @@ impl<'a> HyperCall<'a> {
                 "Virtio send irq operation over non-root zones: unsupported!"
             );
         }
-        let dev = VIRTIO_BRIDGE.lock();
+        let mut res_agent = VIRTIO_BRIDGE.res_agent();
         let mut map_irq = VIRTIO_IRQS.lock();
-        let region = dev.region();
-
-        while !dev.is_res_list_empty() {
-            let res_front = region.res_front as usize;
-            let irq_id = region.res_list[res_front].irq_id as u64;
-            let target_zone = region.res_list[res_front].target_zone;
+        while !res_agent.is_empty() {
+            let (_res_front, irq_id, target_zone) = res_agent.peek_front();
             let target_cpu = match find_zone(target_zone as _) {
-                Some(zone) => get_target_cpu(irq_id as _, target_zone as _),
+                Some(_zone) => get_target_cpu(irq_id as _, target_zone as _),
                 _ => {
-                    fence(Ordering::SeqCst);
-                    region.res_front = (region.res_front + 1) & (MAX_REQ - 1);
-                    fence(Ordering::SeqCst);
+                    res_agent.advance_front();
                     continue;
                 }
             };
@@ -183,11 +172,9 @@ impl<'a> HyperCall<'a> {
                 );
             }
 
-            fence(Ordering::SeqCst);
-            region.res_front = (region.res_front + 1) & (MAX_REQ - 1);
-            fence(Ordering::SeqCst);
+            res_agent.advance_front();
         }
-        drop(dev);
+        drop(res_agent);
         HyperCallResult::Ok(0)
     }
 
@@ -215,7 +202,7 @@ impl<'a> HyperCall<'a> {
             );
         }
         let zone = zone_create(config)?;
-        let boot_cpu = zone.read().cpu_set.first_cpu().unwrap();
+        let boot_cpu = zone.read().cpu_set().first_cpu().unwrap();
 
         let target_data = get_cpu_data(boot_cpu as _);
         let _lock = target_data.ctrl_lock.lock();
@@ -258,7 +245,7 @@ impl<'a> HyperCall<'a> {
         };
         let zone_w = zone.write();
 
-        zone_w.cpu_set.iter().for_each(|cpu_id| {
+        zone_w.cpu_set().iter().for_each(|cpu_id| {
             let _lock = get_cpu_data(cpu_id).ctrl_lock.lock();
             get_cpu_data(cpu_id).cpu_on_entry = INVALID_ADDRESS;
             send_event(cpu_id, SGI_IPI_ID as _, IPI_EVENT_SHUTDOWN);
@@ -271,7 +258,7 @@ impl<'a> HyperCall<'a> {
         let mut count: usize = 0;
 
         // wait all zone's cpus shutdown
-        while zone_w.cpu_set.iter().any(|cpu_id| {
+        while zone_w.cpu_set().iter().any(|cpu_id| {
             let _lock = get_cpu_data(cpu_id).ctrl_lock.lock();
             let power_on = get_cpu_data(cpu_id).arch_cpu.power_on;
             count += 1;
@@ -284,13 +271,13 @@ impl<'a> HyperCall<'a> {
             power_on
         }) {}
 
-        zone_w.cpu_set.iter().for_each(|cpu_id| {
+        zone_w.cpu_set().iter().for_each(|cpu_id| {
             let _lock = get_cpu_data(cpu_id).ctrl_lock.lock();
             get_cpu_data(cpu_id).zone = None;
         });
-        zone_w.arch_irqchip_reset();
 
         drop(zone_w);
+        zone.arch_irqchip_reset();
         drop(zone);
         remove_zone(zone_id as _);
         info!("zone {} has been shutdown", zone_id);

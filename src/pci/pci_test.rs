@@ -13,6 +13,7 @@
 //
 // Authors:
 //
+
 #![allow(dead_code)]
 use core::str::FromStr;
 
@@ -20,19 +21,18 @@ use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 use spin::{lazy::Lazy, mutex::Mutex};
 
 use super::{
-    mem_alloc::BaseAllocator,
-    pci_handler::{mmio_vpci_direct_handler, mmio_vpci_handler},
-    pci_struct::{Bdf, RootComplex, VirtualPciConfigSpace, CONFIG_LENTH},
-};
-
-use crate::{
-    memory::{mmio_perform_access, MMIOAccess},
-    pci::{config_accessors::PciConfigMmio, pci_access::EndpointHeader},
-    percpu::this_zone,
+    pci_handler::mmio_vpci_direct_handler,
+    pci_struct::{Bdf, VirtualPciConfigSpace, CONFIG_LENTH},
 };
 
 #[cfg(feature = "ecam_pcie")]
-use crate::pci::config_accessors::ecam::EcamConfigAccessor;
+use super::{mem_alloc::BaseAllocator, pci_struct::RootComplex};
+
+use crate::{
+    cpu_data::this_zone,
+    memory::{mmio_perform_access, MMIOAccess},
+    pci::{config_accessors::PciConfigMmio, pci_access::EndpointHeader},
+};
 
 pub static GLOBAL_PCIE_LIST_TEST: Lazy<Mutex<BTreeMap<Bdf, VirtualPciConfigSpace>>> =
     Lazy::new(|| {
@@ -57,7 +57,8 @@ pub fn pcie_test() {
 
 pub fn pcie_guest_init() {
     let zone = this_zone();
-    let vbus = &mut zone.write().vpci_bus;
+    let mut zone_w = zone.write();
+    let vbus = zone_w.vpci_bus_mut();
 
     let mut guard = GLOBAL_PCIE_LIST_TEST.lock();
 
@@ -111,7 +112,8 @@ pub fn ecam_pcie_guest_test() {
     // Get base from VirtualPciConfigSpace and add offset
     // Use a block scope to ensure the read lock is released before calling mmio_vpci_direct_handler
     let address = {
-        let vbus = &zone.read().vpci_bus;
+        let zone_r = zone.read();
+        let vbus = zone_r.vpci_bus();
         if let Some(vdev) = vbus.get(&bdf) {
             vdev.read().get_base()
         } else {
@@ -240,7 +242,8 @@ pub fn ecam_pcie_guest_test64() {
     // Get base from VirtualPciConfigSpace and add offset
     // Use a block scope to ensure the read lock is released before calling mmio_vpci_direct_handler
     let address = {
-        let vbus = &zone.read().vpci_bus;
+        let zone_r = zone.read();
+        let vbus = zone_r.vpci_bus();
         if let Some(vdev) = vbus.get(&bdf) {
             vdev.read().get_base()
         } else {

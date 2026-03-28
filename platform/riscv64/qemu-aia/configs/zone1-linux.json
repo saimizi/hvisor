@@ -47,17 +47,26 @@
         "pci_mem32_base": "0x40000000",
         "mem64_base": "0x400000000",
         "mem64_size": "0x400000000",
-        "pci_mem64_base": "0x400000000"
+        "pci_mem64_base": "0x400000000",
+        "bus_range_begin": "0x0",
+        "bus_range_end": "0x1f",
+        "domain": "0x0"
     }],
     "num_pci_devs": 2,
     "alloc_pci_devs": [
         {
-            "bdf": "0x0",
-            "vbdf": "0x0"
+            "domain": "0x0",
+            "bus": "0x0",
+            "device": "0x0",
+            "function": "0x0",
+            "dev_type": "0"
         },
         {
-            "bdf": "0x10",
-            "vbdf": "0x10"
+            "domain": "0x0",
+            "bus": "0x0",
+            "device": "0x2",
+            "function": "0x0",
+            "dev_type": "0"
         }
     ]
 }

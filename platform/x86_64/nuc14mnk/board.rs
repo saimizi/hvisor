@@ -14,7 +14,9 @@
 // Authors:
 //
 use crate::pci_dev;
-use crate::{arch::zone::HvArchZoneConfig, config::*, memory::GuestPhysAddr, pci::vpci_dev::VpciDevType};
+use crate::{
+    arch::zone::HvArchZoneConfig, config::*, memory::GuestPhysAddr, pci::vpci_dev::VpciDevType,
+};
 
 pub const MEM_TYPE_RESERVED: u32 = 5;
 
@@ -32,6 +34,7 @@ const ROOT_ZONE_RSDP_REGION: HvConfigMemoryRegion = HvConfigMemoryRegion {
     virtual_start: 0xe_0000,
     size: 0x2_0000,
 };
+const ROOT_ZONE_RSDP_REGION_ID: usize = 0x1;
 
 const ROOT_ZONE_ACPI_REGION: HvConfigMemoryRegion = HvConfigMemoryRegion {
     mem_type: MEM_TYPE_RAM,
@@ -39,14 +42,23 @@ const ROOT_ZONE_ACPI_REGION: HvConfigMemoryRegion = HvConfigMemoryRegion {
     virtual_start: 0x3530_0000,  // gpa
     size: 0x10_0000,             // modify size accordingly
 };
+const ROOT_ZONE_ACPI_REGION_ID: usize = 0x6;
+
+const ROOT_ZONE_UEFI_REGION: HvConfigMemoryRegion = HvConfigMemoryRegion {
+    mem_type: MEM_TYPE_RAM,
+    physical_start: 0x1a00_0000,
+    virtual_start: 0x1500_0000,
+    size: 0x1_0000,
+};
+const ROOT_ZONE_UEFI_REGION_ID: usize = 0x3;
 
 pub const ROOT_ZONE_NAME: &str = "root-linux";
-pub const ROOT_ZONE_CMDLINE: &str = "video=vesafb console=tty0 nointremap no_timer_check pci=pcie_scan_all root=/dev/sda2 rw init=/init rootwait\0";
+pub const ROOT_ZONE_CMDLINE: &str = "video=vesafb console=tty0 nointremap no_timer_check efi=noruntime pci=pcie_scan_all root=/dev/nvme0n1p5 rw init=/init rootwait\0";
 // pub const ROOT_ZONE_CMDLINE: &str = "video=vesafb console=ttyS0 earlyprintk=serial nointremap no_timer_check pci=pcie_scan_all root=/dev/vda rw init=/init\0";
 //"console=ttyS0 earlyprintk=serial rdinit=/init nokaslr nointremap\0"; // noapic
 // video=vesafb
 
-pub const ROOT_ZONE_MEMORY_REGIONS: [HvConfigMemoryRegion; 14] = [
+pub const ROOT_ZONE_MEMORY_REGIONS: [HvConfigMemoryRegion; 15] = [
     HvConfigMemoryRegion {
         mem_type: MEM_TYPE_RAM,
         physical_start: 0x500_0000,
@@ -60,11 +72,12 @@ pub const ROOT_ZONE_MEMORY_REGIONS: [HvConfigMemoryRegion; 14] = [
         virtual_start: 0x10_0000,
         size: 0x14f0_0000,
     }, // ram
+    ROOT_ZONE_UEFI_REGION, // uefi
     HvConfigMemoryRegion {
         mem_type: MEM_TYPE_RAM,
-        physical_start: 0x1a00_0000,
-        virtual_start: 0x1500_0000,
-        size: 0x30_0000,
+        physical_start: 0x1a01_0000,
+        virtual_start: 0x1501_0000,
+        size: 0x2f_0000,
     }, // ram
     HvConfigMemoryRegion {
         mem_type: MEM_TYPE_RAM,
@@ -84,7 +97,7 @@ pub const ROOT_ZONE_MEMORY_REGIONS: [HvConfigMemoryRegion; 14] = [
         mem_type: MEM_TYPE_RESERVED,
         physical_start: 0x1_0000_0000,
         virtual_start: 0x1_0000_0000,
-        size: 0x2000_0000,
+        size: 0x2_0000_0000,
     }, // zone 1
     HvConfigMemoryRegion {
         mem_type: MEM_TYPE_RESERVED,
@@ -129,6 +142,7 @@ const ROOT_ZONE_SETUP_ADDR: GuestPhysAddr = 0xa000;
 const ROOT_ZONE_VMLINUX_ENTRY_ADDR: GuestPhysAddr = 0x10_0000;
 const ROOT_ZONE_SCREEN_BASE_ADDR: GuestPhysAddr = 0x8000_0000;
 
+pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x6;
 pub const ROOT_ZONE_IRQS_BITMAP: &[BitmapWord] = &get_irqs_bitmap(&[0; 32]);
 pub const ROOT_ZONE_IOAPIC_BASE: usize = 0xfec0_0000;
 pub const ROOT_ARCH_ZONE_CONFIG: HvArchZoneConfig = HvArchZoneConfig {
@@ -139,13 +153,16 @@ pub const ROOT_ARCH_ZONE_CONFIG: HvArchZoneConfig = HvArchZoneConfig {
     setup_load_gpa: ROOT_ZONE_SETUP_ADDR,
     initrd_load_gpa: 0, // 0x1500_0000,
     initrd_size: 0,     // 0x26_b000,
-    rsdp_memory_region_id: 0x1,
-    acpi_memory_region_id: 0x5,
+    rsdp_memory_region_id: ROOT_ZONE_RSDP_REGION_ID,
+    acpi_memory_region_id: ROOT_ZONE_ACPI_REGION_ID,
+    uefi_memory_region_id: ROOT_ZONE_UEFI_REGION_ID,
     // not longer than 32 bits
     screen_base: ROOT_ZONE_SCREEN_BASE_ADDR,
 };
 
 pub const ROOT_PCI_CONFIG: [HvPciConfig; 1] = [HvPciConfig {
+    bus_range_begin: 0x0,
+    bus_range_end: 0x1f,
     ecam_base: 0xc0000000,
     ecam_size: 0x300000,
     io_base: 0x0,
@@ -157,29 +174,30 @@ pub const ROOT_PCI_CONFIG: [HvPciConfig; 1] = [HvPciConfig {
     mem64_base: 0x0,
     mem64_size: 0x0,
     pci_mem64_base: 0x0,
+    domain: 0x0,
 }];
 
 pub const ROOT_PCI_MAX_BUS: usize = 2;
 pub const ROOT_PCI_DEVS: [HvPciDevConfig; 18] = [
-    pci_dev!(0x0, 0x0, 0x0, VpciDevType::Physical), // host bridge
-    pci_dev!(0x0, 0x2, 0x0, VpciDevType::Physical), // VGA controller
-    pci_dev!(0x0, 0x4, 0x0, VpciDevType::Physical),
-    pci_dev!(0x0, 0x8, 0x0, VpciDevType::Physical),
-    pci_dev!(0x0, 0xa, 0x0, VpciDevType::Physical),
-    // pci_dev!(0x0, 0xd, 0x0), // USB controller
-    pci_dev!(0x0, 0x12, 0x0, VpciDevType::Physical), // serial controller
-    pci_dev!(0x0, 0x14, 0x0, VpciDevType::Physical), // USB controller
-    pci_dev!(0x0, 0x14, 0x2, VpciDevType::Physical), // RAM memory
-    pci_dev!(0x0, 0x14, 0x3, VpciDevType::Physical), // network controller
-    pci_dev!(0x0, 0x16, 0x0, VpciDevType::Physical), // communication controller
-    pci_dev!(0x0, 0x1c, 0x0, VpciDevType::Physical), // PCI bridge
-    pci_dev!(0x0, 0x1d, 0x0, VpciDevType::Physical), // PCI bridge
-    pci_dev!(0x0, 0x1f, 0x0, VpciDevType::Physical), // ISA bridge
-    pci_dev!(0x0, 0x1f, 0x3, VpciDevType::Physical), // audio controller
-    pci_dev!(0x0, 0x1f, 0x4, VpciDevType::Physical), // SMBus
-    pci_dev!(0x0, 0x1f, 0x5, VpciDevType::Physical), // serial bus controller
-    pci_dev!(0x1, 0x0, 0x0, VpciDevType::Physical),  // ethernet controller
-    pci_dev!(0x2, 0x0, 0x0, VpciDevType::Physical),  // memory controller
+    pci_dev!(0x0, 0x0, 0x0, 0x0, VpciDevType::Physical), // host bridge
+    pci_dev!(0x0, 0x0, 0x2, 0x0, VpciDevType::Physical), // VGA controller
+    pci_dev!(0x0, 0x0, 0x4, 0x0, VpciDevType::Physical),
+    pci_dev!(0x0, 0x0, 0x8, 0x0, VpciDevType::Physical),
+    pci_dev!(0x0, 0x0, 0xa, 0x0, VpciDevType::Physical),
+    // pci_dev!(0x0, 0x0, 0xd, 0x0), // USB controller
+    pci_dev!(0x0, 0x0, 0x12, 0x0, VpciDevType::Physical), // serial controller
+    pci_dev!(0x0, 0x0, 0x14, 0x0, VpciDevType::Physical), // USB controller
+    pci_dev!(0x0, 0x0, 0x14, 0x2, VpciDevType::Physical), // RAM memory
+    pci_dev!(0x0, 0x0, 0x14, 0x3, VpciDevType::Physical), // network controller
+    pci_dev!(0x0, 0x0, 0x16, 0x0, VpciDevType::Physical), // communication controller
+    pci_dev!(0x0, 0x0, 0x1c, 0x0, VpciDevType::Physical), // PCI bridge
+    pci_dev!(0x0, 0x0, 0x1d, 0x0, VpciDevType::Physical), // PCI bridge
+    pci_dev!(0x0, 0x0, 0x1f, 0x0, VpciDevType::Physical), // ISA bridge
+    pci_dev!(0x0, 0x0, 0x1f, 0x3, VpciDevType::Physical), // audio controller
+    pci_dev!(0x0, 0x0, 0x1f, 0x4, VpciDevType::Physical), // SMBus
+    pci_dev!(0x0, 0x0, 0x1f, 0x5, VpciDevType::Physical), // serial bus controller
+    pci_dev!(0x0, 0x1, 0x0, 0x0, VpciDevType::Physical),  // ethernet controller
+    pci_dev!(0x0, 0x2, 0x0, 0x0, VpciDevType::Physical),  // memory controller
 ];
 
 #[cfg(all(feature = "graphics"))]

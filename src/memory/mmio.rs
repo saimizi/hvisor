@@ -15,7 +15,7 @@
 //
 use core::{ptr, usize};
 
-use crate::{error::HvResult, percpu::this_zone, zone::zone_error};
+use crate::{cpu_data::this_zone, error::HvResult, zone::zone_error};
 
 use super::GuestPhysAddr;
 
@@ -85,7 +85,7 @@ pub fn mmio_perform_access(base: usize, mmio: &mut MMIOAccess) {
 pub fn mmio_handle_access(mmio: &mut MMIOAccess) -> HvResult {
     let zone = this_zone();
     let res = zone.read().find_mmio_region(mmio.address, mmio.size);
-    let zone_id = zone.read().id;
+    let zone_id = zone.id();
     drop(zone);
     match res {
         Some((region, handler, arg)) => {

@@ -1,3 +1,19 @@
+// Copyright (c) 2025 Syswonder
+// hvisor is licensed under Mulan PSL v2.
+// You can use this software according to the terms and conditions of the Mulan PSL v2.
+// You may obtain a copy of Mulan PSL v2 at:
+//     http://license.coscl.org.cn/MulanPSL2
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR
+// FIT FOR A PARTICULAR PURPOSE.
+// See the Mulan PSL v2 for more details.
+//
+// Syswonder Website:
+//      https://www.syswonder.org
+//
+// Authors:
+//
+
 use super::{PciConfigAccessStatus, VpciDeviceHandler};
 use crate::error::HvResult;
 use crate::pci::pci_access::{
@@ -6,12 +22,12 @@ use crate::pci::pci_access::{
 use crate::pci::pci_struct::{CapabilityType, PciCapability, VirtualPciConfigSpace};
 use crate::pci::PciConfigAddress;
 // use crate::memory::frame::Frame;
+use crate::cpu_data::this_zone;
 use crate::memory::MMIOAccess;
 use crate::pci::pci_access::PciMemType;
 use crate::pci::pci_struct::ArcRwLockVirtualPciConfigSpace;
 use crate::pci::pci_struct::PciCapabilityRegion;
 use crate::pci::vpci_dev::VirtMsiXCap;
-use crate::percpu::this_zone;
 use alloc::sync::Arc;
 use spin::RwLock;
 
@@ -79,6 +95,7 @@ impl VpciDeviceHandler for StandardHandler {
                 if value == 0xFFFF_FFFF {
                     dev.with_bar_ref_mut(slot, |bar| bar.set_size_read());
                 } else {
+                    dev.with_bar_ref_mut(slot, |bar| bar.set_virtual_value(value as u64));
                     let zone = this_zone();
                     let mut guard = zone.write();
                     pci_virt_log!(

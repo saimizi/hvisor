@@ -38,6 +38,7 @@ use crate::arch::zone::GicConfig;
 use crate::config::root_zone_config;
 use crate::consts::{self, MAX_CPU_NUM};
 
+use crate::device::irqchip::gicv3::gits::gits_reset;
 use crate::event::check_events;
 use crate::hypercall::SGI_IPI_ID;
 use crate::zone::Zone;
@@ -479,7 +480,8 @@ pub fn percpu_init() {
 impl Zone {
     pub fn arch_irqchip_reset(&self) {
         let gicd_base = host_gicd_base();
-        for (idx, &mask) in self.irq_bitmap.iter().enumerate() {
+        let zone = self.read();
+        for (idx, &mask) in zone.irq_bitmap().iter().enumerate() {
             if idx == 0 {
                 continue;
             }
@@ -487,6 +489,9 @@ impl Zone {
                 write_volatile((gicd_base + GICD_ICENABLER + idx * 4) as *mut u32, mask);
                 write_volatile((gicd_base + GICD_ICACTIVER + idx * 4) as *mut u32, mask);
             }
+        }
+        if host_gits_size() != 0 {
+            gits_reset(self.id());
         }
     }
 }

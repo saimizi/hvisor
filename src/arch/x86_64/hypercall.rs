@@ -17,9 +17,9 @@
 use crate::{
     arch::cpu::this_cpu_id,
     config::CONFIG_MAGIC_VERSION,
+    cpu_data::this_zone,
     device::virtio_trampoline::MAX_DEVS,
     hypercall::{HyperCall, HyperCallResult},
-    percpu::this_zone,
     zone::{Zone, ZoneInfo},
 };
 use spin::RwLock;
@@ -38,7 +38,7 @@ impl<'a> HyperCall<'a> {
         unsafe {
             this_zone()
                 .read()
-                .gpm
+                .gpm()
                 .page_table_query(config_addr as _)
                 .unwrap()
                 .0 as _
@@ -49,7 +49,7 @@ impl<'a> HyperCall<'a> {
         let magic_version = unsafe {
             this_zone()
                 .read()
-                .gpm
+                .gpm()
                 .page_table_query(magic_version as usize)
                 .unwrap()
                 .0 as *mut u64
@@ -73,13 +73,13 @@ impl<'a> HyperCall<'a> {
         let virtio_irq = unsafe {
             this_zone()
                 .read()
-                .gpm
+                .gpm()
                 .page_table_query(virtio_irq as usize)
                 .unwrap()
                 .0 as *mut u32
         };
         unsafe {
-            (*virtio_irq) = crate::device::virtio_trampoline::IRQ_WAKEUP_VIRTIO_DEVICE as _;
+            (*virtio_irq) = crate::platform::IRQ_WAKEUP_VIRTIO_DEVICE as _;
         };
         HyperCallResult::Ok(0)
     }

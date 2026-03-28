@@ -24,6 +24,7 @@ use crate::{
 
 use crate::pci_dev;
 
+#[allow(unused)]
 pub const BOARD_NAME: &str = "qemu-gicv3";
 
 pub const BOARD_NCPUS: usize = 4;
@@ -76,6 +77,7 @@ pub const ROOT_ZONE_MEMORY_REGIONS: &[HvConfigMemoryRegion] = &[
     }, // virtio
 ];
 
+pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
 // 35 36 37 38 -> pcie intx#
 // 65 -> ivc
 pub const ROOT_ZONE_IRQS_BITMAP: &[BitmapWord] =
@@ -115,6 +117,6 @@ pub const ROOT_ZONE_IVC_CONFIG: [HvIvcConfig; 0] = [];
 pub const ROOT_PCI_DEVS: &[HvPciDevConfig] = &[
     pci_dev!(0x0, 0x0, 0x0, 0x0, VpciDevType::Physical),
     pci_dev!(0x0, 0x0, 0x1, 0x0, VpciDevType::Physical),
-    pci_dev!(0x0, 0x0, 0x2, 0x0, VpciDevType::Physical),
+    // pci_dev!(0x0, 0x0, 0x3, 0x0, VpciDevType::Physical),
     pci_dev!(0x0, 0x0, 0x5, 0x0, VpciDevType::StandardVdev),
 ];

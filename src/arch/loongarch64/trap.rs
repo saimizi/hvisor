@@ -20,12 +20,12 @@ use super::zone::ZoneContext;
 use crate::arch::cpu::this_cpu_id;
 use crate::arch::ipi::*;
 use crate::consts::{IPI_EVENT_CLEAR_INJECT_IRQ, MAX_CPU_NUM};
+use crate::cpu_data::this_cpu_data;
 use crate::device::irqchip::inject_irq;
 use crate::device::irqchip::ls7a2000::chip::*;
 use crate::event::{check_events, dump_cpu_events, dump_events};
 use crate::hypercall::{SGI_IPI_ID, *};
 use crate::memory::{addr, mmio_handle_access, MMIOAccess};
-use crate::percpu::this_cpu_data;
 use crate::zone::Zone;
 use crate::PHY_TO_DMW_UNCACHED;
 use core::arch;
@@ -608,14 +608,14 @@ pub fn _vcpu_return(ctx: usize) {
     } else {
         // since LVZ use GID=0 for hypervisor TLB, we cannot use zone id 0 here
         // so we add it by 1 - wheatfox
-        vm_id = z.unwrap().read().id + 1;
+        vm_id = z.unwrap().id() + 1;
     }
     gstat::set_gid(vm_id);
     gstat::set_pgm(true);
     trace!(
         "loongarch64: _vcpu_return: set hardware Guest ID to {} for zone {}",
         vm_id,
-        z.unwrap().read().id
+        z.unwrap().id()
     );
     // Configure guest TLB control
     gtlbc::set_use_tgid(true);

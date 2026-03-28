@@ -17,10 +17,10 @@
 use crate::{
     arch::{acpi, boot, msr::set_msr_bitmap, pio, pio::set_pio_bitmap, Stage2PageTable},
     config::*,
+    cpu_data::get_cpu_data,
     device::virtio_trampoline::mmio_virtio_handler,
     error::HvResult,
     memory::{GuestPhysAddr, HostPhysAddr, MemFlags, MemoryRegion, MemorySet},
-    percpu::get_cpu_data,
     platform::MEM_TYPE_RESERVED,
     zone::Zone,
 };
@@ -54,6 +54,7 @@ pub struct HvArchZoneConfig {
     /// no restriction on start gpa and size, but its type should be MEM_TYPE_RAM as well.
     /// Usually, the DSDT table is large, so the size of this region should be large enough.
     pub acpi_memory_region_id: usize,
+    pub uefi_memory_region_id: usize,
     /// If you want to use a graphical console, set screen_base to a preferred gpa
     /// as the start of the framebuffer. Otherwise, leave it as zero.
     /// No need to add a memory region for the framebuffer,
@@ -63,6 +64,7 @@ pub struct HvArchZoneConfig {
 
 impl Zone {
     pub fn pt_init(&mut self, mem_regions: &[HvConfigMemoryRegion]) -> HvResult {
+        let mut inner = self.write();
         for mem_region in mem_regions.iter() {
             let mut flags = MemFlags::READ | MemFlags::WRITE | MemFlags::EXECUTE;
             if mem_region.mem_type == MEM_TYPE_IO {
@@ -70,7 +72,7 @@ impl Zone {
             }
             match mem_region.mem_type {
                 MEM_TYPE_RAM | MEM_TYPE_IO | MEM_TYPE_RESERVED => {
-                    self.gpm.insert(MemoryRegion::new_with_offset_mapper(
+                    inner.gpm_mut().insert(MemoryRegion::new_with_offset_mapper(
                         mem_region.virtual_start as GuestPhysAddr,
                         mem_region.physical_start as HostPhysAddr,
                         mem_region.size as _,
@@ -78,7 +80,7 @@ impl Zone {
                     ));
                 }
                 MEM_TYPE_VIRTIO => {
-                    self.mmio_region_register(
+                    inner.mmio_region_register(
                         mem_region.physical_start as _,
                         mem_region.size as _,
                         mmio_virtio_handler,
@@ -99,16 +101,18 @@ impl Zone {
 
     /// called after cpu_set is initialized
     pub fn arch_zone_pre_configuration(&mut self, config: &HvZoneConfig) -> HvResult {
-        self.cpu_set.iter().for_each(|cpuid| {
+        let inner = self.read();
+        inner.cpu_set().iter().for_each(|cpuid| {
             let cpu_data = get_cpu_data(cpuid);
             // boot cpu
-            if cpuid == self.cpu_set.first_cpu().unwrap() {
+            if cpuid == inner.cpu_set().first_cpu().unwrap() {
                 cpu_data.arch_cpu.set_boot_cpu_vm_launch_regs(
                     config.arch_config.kernel_entry_gpa as _,
                     config.arch_config.setup_load_gpa as _,
                 );
             }
         });
+        drop(inner);
 
         set_msr_bitmap(config.zone_id as _);
         set_pio_bitmap(config.zone_id as _);
@@ -117,6 +121,7 @@ impl Zone {
     }
 
     pub fn arch_zone_post_configuration(&mut self, config: &HvZoneConfig) -> HvResult {
+        let mut inner = self.write();
         /*let mut msix_bar_regions: Vec<BarRegion> = Vec::new();
         for region in self.pciroot.bar_regions.iter_mut() {
             // check whether this bar is msi-x table
@@ -139,13 +144,17 @@ impl Zone {
             );
         }
 
-        if self.id == 0 {
+        if self.id() == 0 {
             self.pci_bars_register(&config.pci_config);
         }*/
 
-        boot::BootParams::fill(&config, &mut self.gpm);
-        acpi::copy_to_guest_memory_region(&config, &self.cpu_set);
+        boot::BootParams::fill(&config, inner.gpm_mut());
+        acpi::copy_to_guest_memory_region(&config, &inner.cpu_set());
 
+        Ok(())
+    }
+
+    pub fn arch_zone_reset(&mut self, _config: &HvZoneConfig) -> HvResult {
         Ok(())
     }
 }

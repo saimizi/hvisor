@@ -13,8 +13,8 @@
 //
 // Authors:
 //
+
 // #![allow(dead_code)]
-use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
 use bit_field::BitField;
 use bitflags::bitflags;
 use core::{
@@ -25,33 +25,10 @@ use core::{
 
 use super::{
     config_accessors::{PciConfigMmio, PciRegion},
-    pci_struct::ArcRwLockVirtualPciConfigSpace,
     PciConfigAddress,
 };
 
-use crate::{
-    error::{HvError, HvResult},
-    memory::{
-        GuestPhysAddr, HostPhysAddr, MMIOAccess, MemFlags, MemoryRegion, MemorySet, mmio_perform_access
-    },
-    pci::{pci_config::GLOBAL_PCIE_LIST, pci_struct::BIT_LENTH},
-    percpu::this_zone,
-    zone::{is_this_root_zone, this_zone_id},
-};
-
-#[cfg(feature = "dwc_pcie")]
-use crate::pci::config_accessors::{
-    dwc::DwcConfigRegionBackend,
-    dwc_atu::{
-        AtuConfig, AtuType, AtuUnroll, ATU_BASE, ATU_ENABLE_BIT, ATU_REGION_SIZE,
-        PCIE_ATU_UNR_LIMIT, PCIE_ATU_UNR_LOWER_BASE, PCIE_ATU_UNR_LOWER_TARGET,
-        PCIE_ATU_UNR_REGION_CTRL1, PCIE_ATU_UNR_REGION_CTRL2, PCIE_ATU_UNR_UPPER_BASE,
-        PCIE_ATU_UNR_UPPER_LIMIT, PCIE_ATU_UNR_UPPER_TARGET,
-    },
-    PciRegionMmio,
-};
-
-use crate::pci::vpci_dev::VpciDevType;
+use crate::error::HvResult;
 
 pub type VendorId = u16;
 pub type DeviceId = u16;
@@ -225,11 +202,10 @@ impl PciMem {
                 /* for unused bar, size is 0
                  */
                 0
-            }
-            _ => {
-                warn!("{:#?} not support size", self.bar_type);
-                0
-            }
+            } // _ => {
+              //     warn!("{:#?} not support size", self.bar_type);
+              //     0
+              // }
         }
     }
 
@@ -490,8 +466,8 @@ impl Debug for Bar {
         let mut is_null = true;
         while i < self.bararr.len() {
             let bar = &self.bararr[i];
-            let address = bar.value & !0xf;
-            // let address = bar.value;
+            let address = bar.virtual_value & !0xf;
+            // let address = bar.virtual_value;
             match bar.bar_type {
                 PciMemType::Mem32 => {
                     is_null = false;
@@ -523,7 +499,7 @@ impl Debug for Bar {
                     i += 1;
                 }
                 PciMemType::Io => {
-                    writeln!(f, "   IO @ 0x{:x}", bar.value)?;
+                    write!(f, "\n   IO @ 0x{:x}", bar.value)?;
                 }
                 _ => {}
             }
@@ -674,12 +650,12 @@ pub trait PciBarRW: PciRWBase {
                                 1u64 << ((readback_high.trailing_zeros() + 32) as u64)
                             }
                         };
-                        // let value64 = (value as u64) | ((value_high as u64) << 32);
+                        let value64 = (value as u64) | ((value_high as u64) << 32);
 
                         bararr[slot as usize] =
-                            PciMem::new_bar(PciMemType::Mem64Low, value as u64, size, pre);
+                            PciMem::new_bar(PciMemType::Mem64Low, value64, size, pre);
                         bararr[(slot + 1) as usize] =
-                            PciMem::new_bar(PciMemType::Mem64High, value_high as u64, size, pre);
+                            PciMem::new_bar(PciMemType::Mem64High, value64, size, pre);
                         slot += 1; // need extra add 1
                     }
                     _ => {
