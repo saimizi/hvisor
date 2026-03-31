@@ -29,6 +29,7 @@ use alloc::vec::Vec;
 
 #[cfg(any(
     all(feature = "iommu", target_arch = "aarch64"),
+    all(feature = "iommu", target_arch = "riscv64"),
     target_arch = "x86_64"
 ))]
 use crate::arch::iommu::iommu_add_device;
@@ -259,6 +260,7 @@ impl Zone {
 
                 #[cfg(any(
                     all(feature = "iommu", target_arch = "aarch64"),
+                    all(feature = "iommu", target_arch = "riscv64"),
                     target_arch = "x86_64"
                 ))]
                 {
@@ -270,6 +272,9 @@ impl Zone {
                     let device_id = (dev_config.bus as usize) << 8
                         | (dev_config.device as usize) << 3
                         | dev_config.function as usize;
+                    #[cfg(feature = "share_s2pt")]
+                    iommu_add_device(_zone_id, device_id as _, inner.gpm().root_paddr());
+                    #[cfg(not(feature = "share_s2pt"))]
                     iommu_add_device(_zone_id, device_id as _, iommu_pt_addr);
                 }
 
