@@ -74,7 +74,11 @@ fn handle_virt_pci_request(
      * offset is the correct cap we need.
      */
     let result = dev.with_cap(|capabilities| {
-        if let Some((cap_offset, cap)) = capabilities.cap_in_config_ref().range(..=offset).next_back() {
+        if let Some((cap_offset, cap)) = capabilities
+            .cap_in_config_ref()
+            .range(..=offset)
+            .next_back()
+        {
             // info!(
             //     "find cap at offset {:#x}, cap {:#?}",
             //     cap_offset,
@@ -571,7 +575,7 @@ fn handle_config_space_access(
             }
             true => {
                 // Emulation access path
-                
+
                 pci_log!(
                     "emu vbdf {:#?} reg 0x{:x} try {} {}",
                     vbdf,

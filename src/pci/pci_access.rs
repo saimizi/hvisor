@@ -28,7 +28,7 @@ use super::{
     PciConfigAddress,
 };
 
-use crate::{error::HvResult, memory::MMIOAccess};
+use crate::error::HvResult;
 
 pub type VendorId = u16;
 pub type DeviceId = u16;
@@ -302,7 +302,7 @@ impl PciMem {
     }
 
     pub fn get_virtual_value(&self) -> u32 {
-        info!("get_virtual_value:{:?}",self.bar_type);
+        // info!("get_virtual_value:{:?}", self.bar_type);
         match self.bar_type {
             PciMemType::Mem64High => (self.virtual_value >> 32) as u32,
             _ => self.virtual_value as u32,
@@ -341,28 +341,19 @@ impl PciMem {
                 warn!("unkown bar type: {:#?}", self.bar_type);
             }
         }
-        info!("self.virtual_value = {}",val);
+        info!("self.virtual_value = {}", val);
         self.virtual_value = val;
     }
 
-    pub fn get_virtual_addr(&self)->Option<u32>{
+    pub fn get_virtual_addr(&self) -> Option<u32> {
         match self.bar_type {
-            PciMemType::Io=>{
-                Some(((self.virtual_value>>2) <<2) as u32)
-            }
+            PciMemType::Io => Some(((self.virtual_value >> 2) << 2) as u32),
             PciMemType::Unused => {
                 // warn!("get addr from unused bar!");
                 None
             }
-            _ => {
-                Some(((self.virtual_value >> 4) <<4) as u32)
-            }
+            _ => Some(((self.virtual_value >> 4) << 4) as u32),
         }
-    }
-
-    pub fn handle_mmio_within_bar(&self,mmio_ac:&mut MMIOAccess) -> HvResult{
-        warn!("bar handling!");
-        Ok(())
     }
 }
 

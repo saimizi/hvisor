@@ -189,6 +189,16 @@
 		interrupt-affinity = <0x03 0x04>;
 	};
 
+	//interrupt-controller@38800000 {
+	//	compatible = "arm,gic-v3";
+	//	reg = <0x00 0x38800000 0x00 0x10000 0x00 0x38880000 0x00 0xc0000>;
+	//	#interrupt-cells = <0x03>;
+	//	interrupt-controller;
+	//	interrupts = <0x01 0x09 0x04>;
+	//	interrupt-parent = <0x01>;
+	//	phandle = <0x01>;
+	//};
+
 	interrupt-controller@38800000 {
 		compatible = "arm,gic-v3";
 		reg = <0x00 0x38800000 0x00 0x10000 0x00 0x38880000 0x00 0xc0000>;

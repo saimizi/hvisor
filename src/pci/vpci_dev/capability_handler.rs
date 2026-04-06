@@ -1,19 +1,20 @@
 use alloc::{sync::Arc, vec::Vec};
-use spin::{RwLock};
+use spin::RwLock;
 
-use crate::{error::HvResult, memory::MMIOAccess, pci::{pci_struct::PciCapabilityRegion, vpci_dev::virtio_cap::{self, VirtioPciCommonCfg}}};
+use crate::{error::HvResult, memory::MMIOAccess, pci::vpci_dev::virtio_cap::VirtioPciCommonCfg};
 
-pub enum CapBarArea{
-    VirtioCommonCfg
+pub enum CapBarArea {
+    VirtioCommonCfg,
 }
 
 type OffsetInBar = usize;
 type AreaSize = usize;
 
-static mut VIRTIO_CAP_COMMON_CFG:Vec<(OffsetInBar,AreaSize,Arc<RwLock<VirtioPciCommonCfg>>)> = Vec::new();
+static mut VIRTIO_CAP_COMMON_CFG: Vec<(OffsetInBar, AreaSize, Arc<RwLock<VirtioPciCommonCfg>>)> =
+    Vec::new();
 
-pub fn virtio_common_cfg_handler(mmio_ac:&mut MMIOAccess,base:usize)->HvResult{
-    warn!("hi common_cfg_handler!{:?},base:0x{:x}",mmio_ac,base);
+pub fn virtio_common_cfg_handler(mmio_ac: &mut MMIOAccess, base: usize) -> HvResult {
+    warn!("hi common_cfg_handler!{:?},base:0x{:x}", mmio_ac, base);
     Ok(())
 }
 

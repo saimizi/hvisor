@@ -20,10 +20,10 @@ use bitvec::{array::BitArray, order::Lsb0, BitArr};
 use core::{
     cmp::Ordering,
     fmt::Debug,
-    ops::{Deref, DerefMut, Range},
+    ops::Range,
     str::FromStr,
 };
-use spin::{RwLock};
+use spin::RwLock;
 
 use super::{
     config_accessors::{PciConfigAccessor, PciConfigMmio},
@@ -37,7 +37,13 @@ use super::{
 };
 
 use crate::{
-    config::HvPciDevConfig, device, error::{HvErrorNum, HvResult}, memory::{GuestPhysAddr, MMIOAccess}, pci::vpci_dev::{VpciDevType, virtio_cap::{AreaInBar, BarAreaManager, BarUsageInfo}}
+    config::HvPciDevConfig,
+    error::{HvErrorNum, HvResult},
+    memory::{GuestPhysAddr, MMIOAccess},
+    pci::vpci_dev::{
+        virtio_cap::{AreaInBar, BarAreaManager},
+        VpciDevType,
+    },
 };
 
 type VirtualPciConfigBits = BitArr!(for BIT_LENTH, in u8, Lsb0);
@@ -195,7 +201,7 @@ impl Bdf {
         }
     }
 
-    pub fn requester_id(&self) -> u16{
+    pub fn requester_id(&self) -> u16 {
         let bus = self.bus as u16;
         let device = self.device as u16;
         let function = self.function as u16;
@@ -512,11 +518,11 @@ impl ArcRwLockVirtualPciConfigSpace {
         self.0.write()
     }
 
-    pub fn is_my_bar_addr(&self,addr:usize) -> Option<usize> {
+    pub fn is_my_bar_addr(&self, addr: usize) -> Option<usize> {
         self.0.read().is_my_bar_addr(addr)
     }
 
-    pub fn bar_mmio_distribute(&self,bar:usize,mmio_ac:&mut MMIOAccess) -> HvResult{
+    pub fn bar_mmio_distribute(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
         self.0.read().bar_mmio_distribute(bar, mmio_ac)
     }
 }
@@ -647,10 +653,10 @@ impl VirtualPciConfigSpace {
         }
     }
 
-    pub fn is_my_bar_addr(&self,addr:usize) -> Option<usize>{
+    pub fn is_my_bar_addr(&self, addr: usize) -> Option<usize> {
         let mut index = 0;
-        for i in &self.bararr{
-            if let Some(res) = i.get_virtual_addr(){
+        for i in &self.bararr {
+            if let Some(res) = i.get_virtual_addr() {
                 // warn!("get res:{:x}",res);
                 if res as usize == addr {
                     return Some(index);
@@ -664,13 +670,8 @@ impl VirtualPciConfigSpace {
         None
     }
 
-    pub fn bar_mmio_distribute(&self,bar:usize,mmio_ac:&mut MMIOAccess) -> HvResult {
-        // self.bararr[bar].handle_mmio_within_bar(mmio_ac)
+    pub fn bar_mmio_distribute(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
         self.capabilities.handle_bar_read(bar, mmio_ac)
-    }
-
-    pub fn init_mmio_region_on_bar(&self,bar:usize){
-        
     }
 }
 
@@ -1499,7 +1500,7 @@ impl VirtualRootComplex {
         &mut self.devs
     }
 
-    pub fn read_devs(&self) -> & BTreeMap<Bdf,ArcRwLockVirtualPciConfigSpace>{
+    pub fn read_devs(&self) -> &BTreeMap<Bdf, ArcRwLockVirtualPciConfigSpace> {
         &self.devs
     }
 
@@ -1742,10 +1743,14 @@ impl PciCapability {
         }
     }
 
-    pub fn new_virt(
-        cap_type: CapabilityType,
-        region: Arc<RwLock<dyn PciCapabilityRegion>>,
-    ) -> Self {
+    pub fn new_virt(region: Arc<RwLock<dyn PciCapabilityRegion>>) -> Self {
+        Self {
+            cap_type: CapabilityType::Vendor,
+            region,
+        }
+    }
+
+    pub fn new_cap(cap_type: CapabilityType, region: Arc<RwLock<dyn PciCapabilityRegion>>) -> Self {
         Self { cap_type, region }
     }
 
@@ -1790,10 +1795,6 @@ pub trait PciCapabilityRegion: Send + Sync {
         let next_offset = (value as u16).get_bits(8..16) as PciConfigAddress;
         Ok(next_offset)
     }
-
-    fn bar_usage_info(&self) -> Option<BarUsageInfo>{
-        None
-    }
 }
 
 pub struct StandardPciCapabilityRegion {
@@ -1834,32 +1835,44 @@ impl PciCapabilityRegion for StandardPciCapabilityRegion {
 }
 
 #[derive(Clone)]
-pub struct PciCapabilityList{
-    cap_in_config:BTreeMap<PciConfigAddress, PciCapability>,
-    cap_in_bar:Arc<RwLock<BarAreaManager>>
+pub struct PciCapabilityList {
+    cap_in_config: BTreeMap<PciConfigAddress, PciCapability>,
+    cap_in_bar: Arc<RwLock<BarAreaManager>>,
 }
 
 impl PciCapabilityList {
     pub fn new() -> Self {
-        Self{
-            cap_in_config:BTreeMap::new(),
-            cap_in_bar:Arc::new(RwLock::new(BarAreaManager::new()))
+        Self {
+            cap_in_config: BTreeMap::new(),
+            cap_in_bar: Arc::new(RwLock::new(BarAreaManager::new())),
         }
     }
 
-    pub fn insert_cap(&mut self,addr:PciConfigAddress,cap:PciCapability)->Option<PciCapability>{
+    pub fn insert_cap(
+        &mut self,
+        addr: PciConfigAddress,
+        cap: PciCapability,
+    ) -> Option<PciCapability> {
         self.cap_in_config.insert(addr, cap)
     }
 
-    pub fn register_bar_area(&mut self,bar:usize,bar_relative_addr:GuestPhysAddr,size_in_bar:usize,data:Arc<RwLock<dyn AreaInBar>>){
-        self.cap_in_bar.write().insert(bar, bar_relative_addr, size_in_bar, data);
+    pub fn register_bar_area(
+        &mut self,
+        bar: usize,
+        bar_relative_addr: GuestPhysAddr,
+        size_in_bar: usize,
+        data: Arc<RwLock<dyn AreaInBar>>,
+    ) {
+        self.cap_in_bar
+            .write()
+            .insert(bar, bar_relative_addr, size_in_bar, data);
     }
 
-    pub fn cap_in_config_ref(&self)->&BTreeMap<PciConfigAddress,PciCapability>{
+    pub fn cap_in_config_ref(&self) -> &BTreeMap<PciConfigAddress, PciCapability> {
         &self.cap_in_config
     }
 
-    pub fn handle_bar_read(&self,bar:usize,mmio_ac:&mut MMIOAccess)->HvResult{
+    pub fn handle_bar_read(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
         self.cap_in_bar.read().handle_bar_access(bar, mmio_ac)
     }
 }
@@ -1912,7 +1925,9 @@ impl VirtualPciConfigSpace {
                 CapabilityType::PciExpress => {}
                 _ => {}
             }
-            capabilities.cap_in_config.insert(capability.get_offset(), capability);
+            capabilities
+                .cap_in_config
+                .insert(capability.get_offset(), capability);
         }
         info!("capability {:#?}", capabilities);
         self.capabilities = capabilities;

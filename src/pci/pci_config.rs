@@ -228,7 +228,7 @@ impl Zone {
              *      then the function number of the current vBDF should be set to 0.
              */
             for dev_config in &filtered_devices {
-                info!("dev config loop entered:{:?}",dev_config.dev_type);
+                info!("dev config loop entered:{:?}", dev_config.dev_type);
                 let bdf = Bdf::new_from_config(*dev_config);
                 let bus = bdf.bus();
                 let device = bdf.device();
@@ -297,7 +297,7 @@ impl Zone {
                     #[cfg(feature = "ecam_pcie")]
                     {
                         let dev_type = dev_config.dev_type;
-                        warn!("dev_type:{:?}",dev_config);
+                        warn!("dev_type:{:?}", dev_config);
                         match dev_type {
                             VpciDevType::Physical => {
                                 warn!("can not find dev {:#?}", bdf);
@@ -335,7 +335,10 @@ impl Zone {
         for rootcomplex_config in pci_rootcomplex_config {
             /* empty config */
 
-            info!("114514:{:x};size:{:x}",rootcomplex_config.ecam_base,rootcomplex_config.ecam_size);
+            info!(
+                "114514:{:x};size:{:x}",
+                rootcomplex_config.ecam_base, rootcomplex_config.ecam_size
+            );
             if rootcomplex_config.ecam_base == 0 {
                 continue;
             }

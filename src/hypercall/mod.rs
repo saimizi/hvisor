@@ -27,7 +27,10 @@ use crate::zone::{
     add_zone, all_zones_info, find_zone, is_this_root_zone, remove_zone, zone_create, ZoneInfo,
 };
 
-use crate::event::{IPI_EVENT_SHUTDOWN, IPI_EVENT_VIRTIO_INJECT_IRQ, IPI_EVENT_VIRTIO_PCI_DONE, IPI_EVENT_WAKEUP, send_event};
+use crate::event::{
+    send_event, IPI_EVENT_SHUTDOWN, IPI_EVENT_VIRTIO_INJECT_IRQ, IPI_EVENT_VIRTIO_PCI_DONE,
+    IPI_EVENT_WAKEUP,
+};
 use core::convert::TryFrom;
 use numeric_enum_macro::numeric_enum;
 
@@ -74,7 +77,7 @@ impl<'a> HyperCall<'a> {
         );
         unsafe {
             match code {
-                HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0,arg1),
+                HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0, arg1),
                 HyperCallCode::HvVirtioInjectIrq => self.hv_virtio_inject_irq(),
                 HyperCallCode::HvVirtioGetIrq => self.hv_virtio_get_irq(arg0 as *mut u32),
                 HyperCallCode::HvZoneStart => {
@@ -105,11 +108,14 @@ impl<'a> HyperCall<'a> {
     }
 
     // only root zone calls the function and set virtio shared region between el1 and el2.
-    fn hv_virtio_init(&mut self, shared_region_addr: u64, virtio_pci_region:u64) -> HyperCallResult {
+    fn hv_virtio_init(
+        &mut self,
+        shared_region_addr: u64,
+        virtio_pci_region: u64,
+    ) -> HyperCallResult {
         info!(
             "handle hvc init virtio, shared_region_addr = {:#x?}, pci_region:{:x}",
-            shared_region_addr,
-            virtio_pci_region
+            shared_region_addr, virtio_pci_region
         );
         if !is_this_root_zone() {
             return hv_result_err!(EPERM, "Init virtio over non-root zones: unsupported!");
@@ -128,9 +134,7 @@ impl<'a> HyperCall<'a> {
         // 		MemFlags::READ | MemFlags::WRITE,
         // 	))?;
         // TODO: flush tlb
-        VIRTIO_PCI_BRIDGE
-            .lock()
-            .init(shared_pci_region_addr_pa);
+        VIRTIO_PCI_BRIDGE.lock().init(shared_pci_region_addr_pa);
         VIRTIO_BRIDGE.set_base_addr(shared_region_addr_pa as _);
         info!("hvisor device region base is {:#x?}", shared_region_addr_pa);
 
@@ -184,7 +188,7 @@ impl<'a> HyperCall<'a> {
         let config_pa = self.hv_get_real_pa(config_ipa);
         let config = unsafe { &*(config_pa as *const HvZoneConfig) };
 
-        info!("hv_zone_start: config: {:#x?},pa:{:#x}", config,config_pa);
+        info!("hv_zone_start: config: {:#x?},pa:{:#x}", config, config_pa);
         // return HyperCallResult::Ok(0);
         if !is_this_root_zone() {
             return hv_result_err!(
@@ -314,13 +318,19 @@ impl<'a> HyperCall<'a> {
         HyperCallResult::Ok(core::cmp::min(cnt as _, zones_info.len()))
     }
 
-    fn hv_virtio_pci_done(&mut self,data_req_id:u64)->HyperCallResult{
+    fn hv_virtio_pci_done(&mut self, data_req_id: u64) -> HyperCallResult {
         let cpu_id = (data_req_id & 0x0000_ffff_0000_0000) >> 32;
-        
+
         unsafe {
-            VIRTIO_MSIX_MANAGER.write().add_pending_data_req_id(data_req_id);
+            VIRTIO_MSIX_MANAGER
+                .write()
+                .add_pending_data_req_id(data_req_id);
         }
-        send_event(cpu_id as usize, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_DONE);
-        HyperCallResult::Ok(0)   
+        send_event(
+            cpu_id as usize,
+            SGI_IPI_ID as usize,
+            IPI_EVENT_VIRTIO_PCI_DONE,
+        );
+        HyperCallResult::Ok(0)
     }
 }

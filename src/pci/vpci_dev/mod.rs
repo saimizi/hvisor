@@ -63,10 +63,10 @@ pub(crate) const DEFAULT_CSPACE_U32: [u32; STANDARD_CFG_SIZE / 4] = {
     arr
 };
 
+pub mod capability_handler;
 pub mod rng;
 pub mod standard;
 pub mod virtio_cap;
-pub mod capability_handler;
 pub mod virtio_queue;
 /*
  * PciConfigAccessStatus is used to return the result of the config space access
@@ -114,11 +114,10 @@ pub trait VpciDeviceHandler: Sync + Send {
  * 1. Add the variant to VpciDevType enum above
  * 2. Add the handler registration here: (&module::HANDLER, VpciDevType::YourType)
  */
-static HANDLERS: &[(&dyn VpciDeviceHandler, VpciDevType)] =
-    &[
-        (&standard::HANDLER, VpciDevType::StandardVdev),
-        (&rng::HANDLER,VpciDevType::VirtioRng)
-    ];
+static HANDLERS: &[(&dyn VpciDeviceHandler, VpciDevType)] = &[
+    (&standard::HANDLER, VpciDevType::StandardVdev),
+    (&rng::HANDLER, VpciDevType::VirtioRng),
+];
 
 pub(crate) fn get_handler(dev_type: VpciDevType) -> Option<&'static dyn VpciDeviceHandler> {
     HANDLERS
@@ -204,7 +203,7 @@ pub(super) fn vpci_dev_write_cfg(
 ) -> HvResult {
     match dev_type {
         VpciDevType::Physical => {
-            warn!("vpci_dev_write_cfg: physical device is not supported");
+            // warn!("vpci_dev_write_cfg: physical device is not supported");
             Ok(())
         }
         _ => {
@@ -213,11 +212,11 @@ pub(super) fn vpci_dev_write_cfg(
                     Ok(status) => match status {
                         PciConfigAccessStatus::Done(_) => Ok(()),
                         PciConfigAccessStatus::Default => {
-                            warn!("vpci_dev_write_cfg: Default");
+                            // warn!("vpci_dev_write_cfg: Default");
                             Ok(())
                         }
                         PciConfigAccessStatus::Reject => {
-                            warn!("vpci_dev_write_cfg: operation rejected");
+                            // warn!("vpci_dev_write_cfg: operation rejected");
                             Ok(())
                         }
                     },

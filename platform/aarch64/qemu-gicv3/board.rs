@@ -78,8 +78,8 @@ pub const ROOT_ZONE_MEMORY_REGIONS: &[HvConfigMemoryRegion] = &[
 ];
 
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
-pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG:usize = 32 + 0x21;
-pub const IRQ_WAKEUP_VIRTIO_PCI_DATA:usize = 32 + 0x22;
+pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG: usize = 32 + 0x21;
+pub const IRQ_WAKEUP_VIRTIO_PCI_DATA: usize = 32 + 0x22;
 // 35 36 37 38 -> pcie intx#
 // 65 -> ivc
 pub const ROOT_ZONE_IRQS_BITMAP: &[BitmapWord] =

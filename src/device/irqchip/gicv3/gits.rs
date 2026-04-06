@@ -15,13 +15,12 @@
 //
 use core::ptr;
 
-use alloc::{sync::Arc, vec::Vec};
-use spin::{mutex::Mutex, Once, RwLock};
 use crate::{
     consts::MAX_ZONE_NUM, cpu_data::this_zone, device::irqchip::gicv3::gicr::enable_one_lpi,
-    memory::Frame,
-    pci::vpci_dev::virtio_cap::MAPTI_INTERCEPTOR
+    memory::Frame, pci::vpci_dev::virtio_cap::MAPTI_INTERCEPTOR,
 };
+use alloc::{sync::Arc, vec::Vec};
+use spin::{mutex::Mutex, Once, RwLock};
 
 use super::host_gits_base;
 
@@ -257,7 +256,7 @@ impl Cmdq {
             0x08 => {
                 let id = value[0] & 0xffffffff00000000;
                 let itt_base = value[2] & 0x000fffffffffff00; // the lowest 8 bits are zeros
-                info!(
+                debug!(
                     "MAPD cmd, for device {:#x}, itt base {:#x}",
                     id >> 32,
                     itt_base
@@ -272,7 +271,7 @@ impl Cmdq {
                 };
                 new_cmd[2] &= !0x000fffffffffff00u64;
                 new_cmd[2] |= phys_itt_base as u64;
-                info!(
+                debug!(
                     "MAPD cmd, set ITT: {:#x} to device {:#x}",
                     phys_itt_base,
                     id >> 32
@@ -290,15 +289,16 @@ impl Cmdq {
                 enable_one_lpi((intid - 8192) as _);
                 unsafe {
                     match MAPTI_INTERCEPTOR.clone() {
-                        Some(x)=>{
-                            x.write().intercept_its(id as usize, event as usize, intid as usize);
+                        Some(x) => {
+                            x.write()
+                                .intercept_its(id as usize, event as usize, intid as usize);
                         }
                         None => {
-                            warn!("MAPTI_INTERCEPTOR is None!");
+                            // warn!("MAPTI_INTERCEPTOR is None!");
                         }
                     }
                 }
-                info!(
+                debug!(
                     "MAPTI cmd, for device {:#x}, event {:#x} -> vicid {:#x} (icid {:#x}) + intid {:#x}",
                     id >> 32,
                     event,

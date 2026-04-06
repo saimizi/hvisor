@@ -27,7 +27,8 @@ use crate::{
     hypercall::SGI_IPI_ID,
 };
 use crate::{
-    arch::cpu::this_cpu_id, consts::MAX_WAIT_TIMES, device::irqchip::inject_irq, error::HvResult, memory::MMIOAccess, pci::vpci_dev::virtio_queue::GuestMemory, zone::this_zone_id
+    arch::cpu::this_cpu_id, consts::MAX_WAIT_TIMES, device::irqchip::inject_irq, error::HvResult,
+    memory::MMIOAccess, pci::vpci_dev::virtio_queue::GuestMemory, zone::this_zone_id,
 };
 use alloc::collections::BTreeMap;
 use core::{
@@ -344,24 +345,30 @@ impl<'a> ResAgent<'a> {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy,Debug)]
-pub struct VirtqueueAreaInfo{
+#[derive(Clone, Copy, Debug)]
+pub struct VirtqueueAreaInfo {
     pub desc_area: u64,
     pub avail_area: u64,
-    pub used_area: u64
+    pub used_area: u64,
 }
 
-impl VirtqueueAreaInfo{
-    pub fn new(desc:u64,avail:u64,used:u64)->Self{
-        Self { desc_area: desc, avail_area: avail, used_area: used }
+impl VirtqueueAreaInfo {
+    pub fn new(desc: u64, avail: u64, used: u64) -> Self {
+        Self {
+            desc_area: desc,
+            avail_area: avail,
+            used_area: used,
+        }
     }
 
-    pub fn dummy()->Self{
-        Self { desc_area: 0, avail_area: 0, used_area: 0 }
+    pub fn dummy() -> Self {
+        Self {
+            desc_area: 0,
+            avail_area: 0,
+            used_area: 0,
+        }
     }
 }
-
-
 
 // pub struct VirtioPCIBridge{
 //     req_list:[VirtioPCIReq;128]
@@ -370,88 +377,100 @@ impl VirtqueueAreaInfo{
 // type VirtioPCIBridgeRegion = GuestSlice<VirtqueueAreaInfo>;
 
 #[repr(C)]
-#[derive(Clone, Copy,Debug)]
-pub struct VirtioPCIConfigInfo{
-    features:u64,
-    dev_id:u16,
-    num_of_queues:u16,
-    dtype:u16,
-    padding:u16,
-    vqs:[VirtqueueAreaInfo;MAX_VQ],
+#[derive(Clone, Copy, Debug)]
+pub struct VirtioPCIConfigInfo {
+    features: u64,
+    dev_id: u16,
+    num_of_queues: u16,
+    dtype: u16,
+    padding: u16,
+    vqs: [VirtqueueAreaInfo; MAX_VQ],
 }
 
-impl VirtioPCIConfigInfo{
-    pub fn dummy()->Self{
-        Self { features: 0, dev_id: 0, num_of_queues: 0, dtype: 0,padding:0, vqs: [VirtqueueAreaInfo::dummy();16] }
+impl VirtioPCIConfigInfo {
+    pub fn dummy() -> Self {
+        Self {
+            features: 0,
+            dev_id: 0,
+            num_of_queues: 0,
+            dtype: 0,
+            padding: 0,
+            vqs: [VirtqueueAreaInfo::dummy(); 16],
+        }
     }
 
-    pub fn set_features(&mut self,val:u64){
+    pub fn set_features(&mut self, val: u64) {
         self.features = val;
     }
 
-    pub fn set_dev_id(&mut self,val:u16){
+    pub fn set_dev_id(&mut self, val: u16) {
         self.dev_id = val;
     }
 
-    pub fn set_num_of_queues(&mut self,val:u16){
+    pub fn set_num_of_queues(&mut self, val: u16) {
         self.num_of_queues = val;
     }
 
-    pub fn set_dtype(&mut self,val:u16){
+    pub fn set_dtype(&mut self, val: u16) {
         self.dtype = val;
     }
 
-    pub fn set_vqs(&mut self,idx:usize,val:VirtqueueAreaInfo){
-        if idx >= MAX_VQ{
-            error!("It's illegal to have idx:0x{:x} exceeding MAX_VQ",idx);
+    pub fn set_vqs(&mut self, idx: usize, val: VirtqueueAreaInfo) {
+        if idx >= MAX_VQ {
+            error!("It's illegal to have idx:0x{:x} exceeding MAX_VQ", idx);
             return;
         }
         self.vqs[idx] = val;
     }
-
 }
 
 #[repr(C)]
-#[derive(Copy,Clone,Debug)]
-pub struct VirtioPCIDataInfo{
-    dev_id:u16,
-    queue_id:u16,
-    cpu_id:u16,
-    _padding:u16
+#[derive(Copy, Clone, Debug)]
+pub struct VirtioPCIDataInfo {
+    dev_id: u16,
+    queue_id: u16,
+    cpu_id: u16,
+    _padding: u16,
 }
 
-impl VirtioPCIDataInfo{
-    pub fn new(dev_id:u16,queue_id:u16)->Self{
+impl VirtioPCIDataInfo {
+    pub fn new(dev_id: u16, queue_id: u16) -> Self {
         let cpu_id = this_cpu_id() as u16;
-        Self { dev_id, queue_id ,cpu_id,_padding:0xff}
+        Self {
+            dev_id,
+            queue_id,
+            cpu_id,
+            _padding: 0xff,
+        }
     }
 
-    pub fn get_identifier(&self)->u64{
+    pub fn get_identifier(&self) -> u64 {
         (self.dev_id as u64) | ((self.queue_id as u64) << 16) | ((self.cpu_id as u64) << 32)
     }
 }
 
 pub struct VirtioPCIBridge {
-    config:GuestMemory,
-    // config:VirtioPCIConfigInfo,
-    data:GuestMemory,
-    // data:VirtioPCIConfigInfo,
+    config: GuestMemory,
+    data: GuestMemory,
 }
 
-impl VirtioPCIBridge{
-    pub const fn dummy()->Self{
-        Self { config: GuestMemory::dummy(), data: GuestMemory::dummy() }
+impl VirtioPCIBridge {
+    pub const fn dummy() -> Self {
+        Self {
+            config: GuestMemory::dummy(),
+            data: GuestMemory::dummy(),
+        }
     }
 
-    pub fn init(&mut self,addr:usize){
-        let size_of_config_info = 2*4+8+24*MAX_VQ;
+    pub fn init(&mut self, addr: usize) {
+        let size_of_config_info = 2 * 4 + 8 + 24 * MAX_VQ;
         self.config.set_ptr(addr);
         self.config.set_len(size_of_config_info);
         self.data.set_ptr(addr + size_of_config_info);
-        self.data.set_len(2*4);
+        self.data.set_len(2 * 4);
     }
 
-    pub fn write_dev_info(&mut self,config:VirtioPCIConfigInfo){
+    pub fn write_dev_info(&mut self, config: VirtioPCIConfigInfo) {
         self.config.write_obj(0, config);
     }
 
@@ -459,22 +478,19 @@ impl VirtioPCIBridge{
     //     self.config.read_obj(0)
     // }
 
-    pub fn write_data_info(&mut self,data_info:VirtioPCIDataInfo){
-        self.data.write_obj(0,data_info );
+    pub fn write_data_info(&mut self, data_info: VirtioPCIDataInfo) {
+        self.data.write_obj(0, data_info);
     }
 
-    pub fn til_config_finish(&self){
-        let mut info:VirtioPCIConfigInfo = self.config.read_obj(0);
-        while info.dev_id == MAX_DEVS as u16{
-            for _ in 0..1000{
-
-            }
+    pub fn til_config_finish(&self) -> u16 {
+        let mut info: VirtioPCIConfigInfo = self.config.read_obj(0);
+        while info.dev_id == MAX_DEVS as u16 {
+            for _ in 0..1000 {}
             info = self.config.read_obj(0);
         }
+        info.dev_id
     }
 }
-
-
 
 // impl VirtioPCIBridgeRegion{
 //     pub fn set_request_index(&self,index:u64,is_config:bool){
