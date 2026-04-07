@@ -118,7 +118,6 @@ fn restrict_bitmask_access(
     is_poke: bool,
     gicd_base: usize,
 ) -> HvResult {
-    // info!("restrict:reg_index:0x{:x}",reg_index);
     let zone = this_zone();
     let zone_r = zone.read();
     let mut access_mask: usize = 0;

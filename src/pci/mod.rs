@@ -21,6 +21,7 @@ pub mod pci_access;
 pub mod pci_config;
 pub mod pci_handler;
 pub mod pci_struct;
+// #[cfg(feature = "virtio_pci")]
 pub mod vpci_dev;
 
 #[cfg(test)]

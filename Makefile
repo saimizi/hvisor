@@ -118,7 +118,7 @@ gen_cargo_config:
 
 vscode:
 	@printf "$(COLOR_GREEN)$(COLOR_BOLD)generating .vscode/settings.json...$(COLOR_RESET)\n"
-# 	./tools/gen_vscode_settings.sh
+	./tools/gen_vscode_settings.sh
 	@printf "$(COLOR_GREEN)$(COLOR_BOLD)generating .vscode/settings.json success!$(COLOR_RESET)\n"
 
 elf:

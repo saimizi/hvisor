@@ -30,6 +30,32 @@ pub static mut MAPTI_INTERCEPTOR: Option<Arc<RwLock<MsixTable>>> = None;
 pub static mut VIRTIO_MSIX_MANAGER: Lazy<Arc<RwLock<VirtioPCIMsixManager>>> =
     Lazy::new(|| Arc::new(RwLock::new(VirtioPCIMsixManager::new())));
 
+#[allow(unused_variables)]
+pub unsafe fn virtio_pci_intercept_its(deviceid: usize, event_id: usize, intid: usize) {
+    #[cfg(feature = "virtio_pci")]
+    unsafe {
+        if let Some(x) = MAPTI_INTERCEPTOR.clone() {
+            x.write().intercept_its(deviceid, event_id, intid);
+        }
+    }
+}
+
+#[allow(unused_variables)]
+pub unsafe fn virtio_pci_add_pending_data_req_id(data_req_id: u64) {
+    #[cfg(feature = "virtio_pci")]
+    unsafe {
+            VIRTIO_MSIX_MANAGER.write().add_pending_data_req_id(data_req_id);
+    }
+}
+
+#[allow(unused_variables)]
+pub unsafe fn virtio_pci_activate_all_pending_irq() {
+    #[cfg(feature = "virtio_pci")]
+    unsafe {
+        VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
+    }
+}
+
 fn put_together(src: (u8, u8, u8, u8)) -> u32 {
     let a = (src.0 as u32) << 24 | (src.1 as u32) << 16 | (src.2 as u32) << 8 | (src.3 as u32);
     a

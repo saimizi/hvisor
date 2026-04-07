@@ -15,10 +15,10 @@
 //
 use core::ptr;
 
+use crate::pci::vpci_dev::virtio_cap::virtio_pci_intercept_its;
 use crate::{
     consts::MAX_ZONE_NUM, cpu_data::this_zone, device::irqchip::gicv3::gicr::enable_one_lpi,
-    memory::Frame, pci::vpci_dev::virtio_cap::MAPTI_INTERCEPTOR,
-    pci::pci_struct::Bdf,
+    memory::Frame, pci::pci_struct::Bdf,
 };
 use alloc::{sync::Arc, vec::Vec};
 use spin::{mutex::Mutex, Once, RwLock};
@@ -289,7 +289,7 @@ impl Cmdq {
         match code {
             ITS_CMD_MAPI => {
                 new_cmd[0] = cmd0_tmp;
-                
+
                 let event = value[1] & 0xffffffff;
                 let vicid = value[2] & 0xffff;
                 let icid = vicid_to_icid_checked(vicid);
@@ -335,15 +335,7 @@ impl Cmdq {
                 set_cmd2_icid(&mut new_cmd[2], icid);
                 enable_one_lpi((intid - 8192) as _);
                 unsafe {
-                    match MAPTI_INTERCEPTOR.clone() {
-                        Some(x) => {
-                            x.write()
-                                .intercept_its(id as usize, event as usize, intid as usize);
-                        }
-                        None => {
-                            // warn!("MAPTI_INTERCEPTOR is None!");
-                        }
-                    }
+                    virtio_pci_intercept_its(id as usize, event as usize, intid as usize);
                 }
                 debug!(
                     "MAPTI cmd, for vbdf {:#x}:{:#x}:{:#x}:{:#x} -> {:#x}:{:#x}:{:#x}:{:#x}, event {:#x} -> vicid {:#x} (icid {:#x}) + intid {:#x}",

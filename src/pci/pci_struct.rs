@@ -17,12 +17,7 @@
 use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use bit_field::BitField;
 use bitvec::{array::BitArray, order::Lsb0, BitArr};
-use core::{
-    cmp::Ordering,
-    fmt::Debug,
-    ops::Range,
-    str::FromStr,
-};
+use core::{cmp::Ordering, fmt::Debug, ops::Range, str::FromStr};
 use spin::RwLock;
 
 use super::{
@@ -750,9 +745,6 @@ impl VirtualPciConfigSpace {
         }
     }
 
-    pub fn virt_dev(bdf: Bdf, base: PciConfigAddress, dev_type: VpciDevType) -> Self {
-        crate::pci::vpci_dev::virt_dev_init(bdf, base, dev_type)
-    }
     pub fn endpoint(
         bdf: Bdf,
         base: PciConfigAddress,

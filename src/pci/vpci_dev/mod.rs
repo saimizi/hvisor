@@ -15,10 +15,8 @@
 //
 
 use crate::error::HvResult;
-use crate::pci::pci_access::{Bar, EndpointField};
 use crate::pci::pci_struct::{
-    ArcRwLockVirtualPciConfigSpace, Bdf, CapabilityType, ConfigValue, PciCapabilityRegion,
-    VirtualPciConfigSpace,
+    ArcRwLockVirtualPciConfigSpace, Bdf, CapabilityType, PciCapabilityRegion, VirtualPciConfigSpace,
 };
 use crate::pci::PciConfigAddress;
 
@@ -126,12 +124,14 @@ pub(crate) fn get_handler(dev_type: VpciDevType) -> Option<&'static dyn VpciDevi
         .map(|(handler, _)| *handler)
 }
 
+#[allow(unused_variables)]
 pub(super) fn vpci_dev_read_cfg(
     dev_type: VpciDevType,
     node: ArcRwLockVirtualPciConfigSpace,
     offset: PciConfigAddress,
     size: usize,
 ) -> HvResult<usize> {
+    #[cfg(feature = "virtio_pci")]
     match dev_type {
         VpciDevType::Physical => {
             warn!("vpci_dev_read_cfg: physical device is not supported");
@@ -145,6 +145,8 @@ pub(super) fn vpci_dev_read_cfg(
                             PciConfigAccessStatus::Done(value) => Ok(value),
                             PciConfigAccessStatus::Default => {
                                 // If this is a standard virtual device, read from DEFAULT_CSPACE_U32
+
+                                use crate::pci::pci_access::EndpointField;
                                 pci_virt_log!("vpci_dev_read_cfg: default config space read, offset {:#x}, size {:#x}", offset, size);
                                 if offset < STANDARD_CFG_SIZE as PciConfigAddress {
                                     let u32_offset = (offset as usize) / 4;
@@ -163,6 +165,8 @@ pub(super) fn vpci_dev_read_cfg(
                                         }
                                         4 => u32_value as usize,
                                         _ => {
+                                            use crate::pci::pci_access::EndpointField;
+
                                             warn!("vpci_dev_read_cfg: invalid size {size}, try read from emu");
                                             let field = EndpointField::from(offset as usize, size);
                                             return node.write().read_emu(field);
@@ -192,8 +196,16 @@ pub(super) fn vpci_dev_read_cfg(
             }
         }
     }
+    #[cfg(not(feature = "virtio_pci"))]
+    {
+        Err(hv_err!(
+            ENOSYS,
+            format!("Read virtual virtio pci device when feature virtio_pci is not enabled!")
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 pub(super) fn vpci_dev_write_cfg(
     dev_type: VpciDevType,
     node: ArcRwLockVirtualPciConfigSpace,
@@ -201,6 +213,7 @@ pub(super) fn vpci_dev_write_cfg(
     size: usize,
     value: usize,
 ) -> HvResult {
+    #[cfg(feature = "virtio_pci")]
     match dev_type {
         VpciDevType::Physical => {
             // warn!("vpci_dev_write_cfg: physical device is not supported");
@@ -231,37 +244,58 @@ pub(super) fn vpci_dev_write_cfg(
             }
         }
     }
+
+    #[cfg(not(feature = "virtio_pci"))]
+    {
+        Err(hv_err!(
+            ENOSYS,
+            format!("Write virtual virtio pci device when feature virtio_pci is not enabled!")
+        ))
+    }
 }
 
+#[allow(unused_variables)]
 pub(super) fn virt_dev_init(
     bdf: Bdf,
     base: PciConfigAddress,
     dev_type: VpciDevType,
-) -> VirtualPciConfigSpace {
-    // Create initial VirtualPciConfigSpace with default values
-    let initial_dev = VirtualPciConfigSpace::virt_dev_init_default(
-        bdf,
-        base,
-        dev_type,
-        ConfigValue::default(),
-        Bar::default(),
-    );
+) -> Option<VirtualPciConfigSpace> {
+    #[cfg(feature = "virtio_pci")]
+    {
+        // Create initial VirtualPciConfigSpace with default values
 
-    match dev_type {
-        VpciDevType::Physical => {
-            // Physical devices use default values
-            warn!("virt_dev_init: physical device is not supported");
-            initial_dev
-        }
-        _ => {
-            if let Some(handler) = get_handler(dev_type) {
-                // Let handler modify and return the device
-                handler.vdev_init(initial_dev)
-            } else {
-                warn!("virt_dev_init: unknown device type");
-                initial_dev
+        use crate::pci::{pci_access::Bar, pci_struct::ConfigValue};
+        let initial_dev = VirtualPciConfigSpace::virt_dev_init_default(
+            bdf,
+            base,
+            dev_type,
+            ConfigValue::default(),
+            Bar::default(),
+        );
+
+        match dev_type {
+            VpciDevType::Physical => {
+                // Physical devices use default values
+                warn!("virt_dev_init: physical device is not supported");
+                Some(initial_dev)
+            }
+            _ => {
+                if let Some(handler) = get_handler(dev_type) {
+                    // Let handler modify and return the device
+                    Some(handler.vdev_init(initial_dev))
+                } else {
+                    warn!("virt_dev_init: unknown device type");
+                    Some(initial_dev)
+                }
             }
         }
+    }
+    #[cfg(not(feature = "virtio_pci"))]
+    {
+        warn!(
+            "Try to initialize a virtual virtio pci device when feature virtio-pci is not enabled"
+        );
+        None
     }
 }
 

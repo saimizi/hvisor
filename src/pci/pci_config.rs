@@ -35,10 +35,7 @@ use alloc::vec::Vec;
 use crate::arch::iommu::iommu_add_device;
 
 #[cfg(feature = "ecam_pcie")]
-use crate::pci::{
-    pci_struct::VirtualPciConfigSpace,
-    vpci_dev::{get_handler, VpciDevType},
-};
+use crate::pci::vpci_dev::{get_handler, VpciDevType};
 
 #[cfg(any(
     feature = "ecam_pcie",
@@ -182,7 +179,7 @@ impl Zone {
         _num_pci_config: usize,
     ) -> HvResult {
         let mut inner = self.write();
-        let mut guard = GLOBAL_PCIE_LIST.lock();
+        let guard = GLOBAL_PCIE_LIST.lock();
         for target_pci_config in pci_config {
             // Skip empty config
             info!("pci config loop");
@@ -193,7 +190,6 @@ impl Zone {
             #[allow(unused_variables)]
             let ecam_base = target_pci_config.ecam_base;
             let target_domain = target_pci_config.domain;
-            let bus_range_begin = target_pci_config.bus_range_begin as u8;
 
             // Create accessor for VirtualRootComplex, similar to RootComplex
             #[cfg(feature = "dwc_pcie")]
@@ -254,11 +250,6 @@ impl Zone {
                     .then_with(|| a.device.cmp(&b.device))
                     .then_with(|| a.function.cmp(&b.function))
             });
-
-            let mut vbus_pre = bus_range_begin;
-            let mut bus_pre = bus_range_begin;
-            let mut device_pre = 0u8;
-            let mut vdevice_pre = 0u8;
 
             /*
              * To allow Linux to successfully recognize the devices we add, hvisor needs
@@ -381,12 +372,17 @@ impl Zone {
                             }
                             _ => {
                                 if let Some(_handler) = get_handler(dev_type) {
+                                    use crate::pci::vpci_dev::virt_dev_init;
+
                                     let base = ecam_base
                                         + ((bdf.bus() as u64) << 20)
                                         + ((bdf.device() as u64) << 15)
                                         + ((bdf.function() as u64) << 12);
-                                    let dev = VirtualPciConfigSpace::virt_dev(bdf, base, dev_type);
-                                    inner.vpci_bus_mut().insert(vbdf, dev);
+                                    // let dev = VirtualPciConfigSpace::virt_dev(bdf, base, dev_type);
+                                    let dev = virt_dev_init(bdf, base, dev_type);
+                                    if let Some(x) = dev {
+                                        inner.vpci_bus_mut().insert(vbdf, x);
+                                    }
                                 } else {
                                     warn!("can not find dev {:#?}, unknown device type", bdf);
                                 }
