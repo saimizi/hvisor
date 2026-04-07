@@ -289,7 +289,7 @@ impl Cmdq {
         match code {
             ITS_CMD_MAPI => {
                 new_cmd[0] = cmd0_tmp;
-
+                
                 let event = value[1] & 0xffffffff;
                 let vicid = value[2] & 0xffff;
                 let icid = vicid_to_icid_checked(vicid);
@@ -327,7 +327,7 @@ impl Cmdq {
             }
             ITS_CMD_MAPTI => {
                 new_cmd[0] = cmd0_tmp;
-
+                let id = value[0] & 0xffffffff00000000;
                 let event = value[1] & 0xffffffff;
                 let intid = value[1] >> 32;
                 let vicid = value[2] & 0xffff;
