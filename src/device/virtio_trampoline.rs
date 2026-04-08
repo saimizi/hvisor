@@ -53,10 +53,6 @@ pub const MAX_DEVS: usize = 8; // Attention: The max virtio-dev number for vm is
 pub const MAX_CPUS: usize = 32;
 pub const MAX_VQ: usize = 16;
 
-#[cfg(target_arch = "riscv64")]
-pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x20;
-#[cfg(target_arch = "x86_64")]
-pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x6;
 pub const MAX_BACKOFF: usize = 1024;
 
 #[cfg(not(target_arch = "loongarch64"))]
