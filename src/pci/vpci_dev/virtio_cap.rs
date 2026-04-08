@@ -44,7 +44,9 @@ pub unsafe fn virtio_pci_intercept_its(deviceid: usize, event_id: usize, intid: 
 pub unsafe fn virtio_pci_add_pending_data_req_id(data_req_id: u64) {
     #[cfg(feature = "virtio_pci")]
     unsafe {
-            VIRTIO_MSIX_MANAGER.write().add_pending_data_req_id(data_req_id);
+        VIRTIO_MSIX_MANAGER
+            .write()
+            .add_pending_data_req_id(data_req_id);
     }
 }
 
