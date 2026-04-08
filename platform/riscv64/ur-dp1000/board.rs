@@ -99,6 +99,8 @@ pub const ROOT_ARCH_ZONE_CONFIG: HvArchZoneConfig = HvArchZoneConfig {
 //              Interrupt Config
 // ==================================================
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x20;
+pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG: usize = 0x23;
+pub const IRQ_WAKEUP_VIRTIO_PCI_DATA: usize = 0x24;
 // Note: all here's irqs are hardware irqs,
 //  only these irq can be transferred to the physical PLIC.
 #[rustfmt::skip]
