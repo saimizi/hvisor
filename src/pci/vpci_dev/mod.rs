@@ -61,7 +61,6 @@ pub(crate) const DEFAULT_CSPACE_U32: [u32; STANDARD_CFG_SIZE / 4] = {
     arr
 };
 
-pub mod capability_handler;
 pub mod rng;
 pub mod standard;
 pub mod virtio_cap;

@@ -1924,26 +1924,6 @@ impl PciCapabilityList {
     }
 }
 
-// impl Default for PciCapabilityList {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-
-// impl Deref for PciCapabilityList {
-//     type Target = BTreeMap<PciConfigAddress, PciCapability>;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
-// impl DerefMut for PciCapabilityList {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.0
-//     }
-// }
-
 impl Debug for PciCapabilityList {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "PciCapabilityList {{\n")?;

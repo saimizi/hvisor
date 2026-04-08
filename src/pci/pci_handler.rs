@@ -62,12 +62,6 @@ fn handle_virt_pci_request(
     is_write: bool,
     dev_type: VpciDevType,
 ) -> HvResult<Option<usize>> {
-    // info!(
-    //     "virt pci standard rw offset {:#x}, size {:#x}",
-    //     offset,
-    //     size
-    // );
-
     /*
      * The capability is located in the upper part of the configuration space,
      * and there is no other message. So the max cap_offset which is less than
@@ -79,11 +73,6 @@ fn handle_virt_pci_request(
             .range(..=offset)
             .next_back()
         {
-            // info!(
-            //     "find cap at offset {:#x}, cap {:#?}",
-            //     cap_offset,
-            //     cap.get_type()
-            // );
             let end = *cap_offset + cap.get_size() as u64;
             if offset >= end {
                 return hv_result_err!(
@@ -580,7 +569,6 @@ fn handle_config_space_access(
             }
             true => {
                 // Emulation access path
-
                 pci_log!(
                     "emu vbdf {:#?} reg 0x{:x} try {} {}",
                     vbdf,
@@ -625,7 +613,6 @@ fn handle_config_space_access(
                     }
                     _ => {
                         // virt pci dev
-                        // info!("------------emulation access!!!--------------");
                         if let Some(val) =
                             handle_virt_pci_request(dev, offset, size, value, is_write, dev_type)?
                         {

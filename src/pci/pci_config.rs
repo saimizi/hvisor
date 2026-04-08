@@ -182,7 +182,6 @@ impl Zone {
         let guard = GLOBAL_PCIE_LIST.lock();
         for target_pci_config in pci_config {
             // Skip empty config
-            info!("pci config loop");
             if target_pci_config.ecam_base == 0 {
                 continue;
             }
@@ -266,7 +265,6 @@ impl Zone {
              *      then the function number of the current vBDF should be set to 0.
              */
             for dev_config in &filtered_devices {
-                info!("dev config loop entered:{:?}", dev_config.dev_type);
                 let bdf = Bdf::new_from_config(*dev_config);
                 // let bus = bdf.bus();
                 // let device = bdf.device();
@@ -336,7 +334,6 @@ impl Zone {
 
                 // Insert device into vpci_bus with calculated vbdf
                 if let Some(dev) = guard.get(&bdf) {
-                    info!("caught by guard!");
                     if bdf.is_host_bridge(dev.read().get_host_bdf().bus())
                         || dev.with_config_value(|config_value| -> bool {
                             config_value.get_class().0 == 0x6
@@ -378,7 +375,6 @@ impl Zone {
                                         + ((bdf.bus() as u64) << 20)
                                         + ((bdf.device() as u64) << 15)
                                         + ((bdf.function() as u64) << 12);
-                                    // let dev = VirtualPciConfigSpace::virt_dev(bdf, base, dev_type);
                                     let dev = virt_dev_init(bdf, base, dev_type);
                                     if let Some(x) = dev {
                                         inner.vpci_bus_mut().insert(vbdf, x);
@@ -408,16 +404,11 @@ impl Zone {
         for rootcomplex_config in pci_rootcomplex_config {
             /* empty config */
 
-            info!(
-                "114514:{:x};size:{:x}",
-                rootcomplex_config.ecam_base, rootcomplex_config.ecam_size
-            );
             if rootcomplex_config.ecam_base == 0 {
                 continue;
             }
             #[cfg(feature = "ecam_pcie")]
             {
-                // loop{}
                 // use crate::pci::pci_handler::mmio_vpci_direct_handler;
                 inner.mmio_region_register(
                     rootcomplex_config.ecam_base as usize,

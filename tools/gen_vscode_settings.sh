@@ -50,9 +50,9 @@ cat > .vscode/settings.json <<EOF
 	"rust-analyzer.linkedProjects": [
 		"./Cargo.toml"
 	],
-	// "rust.target": "$TARGET",
+	"rust.target": "$TARGET",
 	"rust.all_targets": false,
-	// "rust-analyzer.cargo.target": "$TARGET",
+	"rust-analyzer.cargo.target": "$TARGET",
 	"rust-analyzer.cargo.features": [
 		"$FEATURES"
 	]
