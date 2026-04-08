@@ -456,7 +456,9 @@ impl VirtioPCIBridge {
     pub fn til_config_finish(&self) -> u16 {
         let mut info: VirtioPCIConfigInfo = self.config.read_obj(0);
         while info.dev_id == MAX_DEVS as u16 {
-            for _ in 0..1000 {}
+            for _ in 0..10 {
+                // info!("waiting!");
+            }
             info = self.config.read_obj(0);
         }
         info.dev_id

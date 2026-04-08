@@ -3,3 +3,4 @@ pl011
 iommu
 pci
 ecam_pcie
+virtio_pci
