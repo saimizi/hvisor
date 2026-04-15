@@ -1337,9 +1337,24 @@ impl<B: BarAllocator> Iterator for PciIterator<B> {
                                 "bridge {:#?}: firmware secondary_bus={:#x}, subordinate_bus={:#x}",
                                 node.bdf, fw_secondary, fw_subordinate
                             );
-                            if fw_secondary != 0 {
+                            // Validate firmware bus number against configured range.
+                            // While the zone config maker is primarily responsible for
+                            // providing a valid range, this guard prevents invalid ECAM
+                            // accesses if firmware programs an out-of-range value.
+                            let range_start = self.bus_range.start as u8;
+                            let range_end = self.bus_range.end as u8;
+                            if fw_secondary != 0
+                                && fw_secondary >= range_start
+                                && fw_secondary <= range_end
+                            {
                                 fw_secondary
                             } else {
+                                if fw_secondary != 0 {
+                                    warn!(
+                                        "bridge {:#?}: firmware secondary_bus {:#x} out of range [{:#x}, {:#x}], falling back to calculated",
+                                        node.bdf, fw_secondary, range_start, range_end
+                                    );
+                                }
                                 parent.subordinate_bus + 1
                             }
                         };
@@ -1347,8 +1362,14 @@ impl<B: BarAllocator> Iterator for PciIterator<B> {
                         let next_bus = parent.subordinate_bus + 1;
 
                         let bdf = Bdf::new(domain, next_bus, 0, 0);
+                        // Use the current bridge's own bus as the immediate parent bus for
+                        // CFG address computation. For multi-level bridges (especially on
+                        // DWC), using parent.primary_bus (the upstream of the *parent*)
+                        // would select the wrong CFG0/CFG1 path and fail to reach devices
+                        // behind deeper bridges.
+                        let immediate_parent_bus = parent.bus;
                         Some(self.get_bridge().next_bridge(
-                            self.address(parent_bus, bdf),
+                            self.address(immediate_parent_bus, bdf),
                             node.has_secondary_link(),
                             self.is_mulitple_function,
                             self.function,
