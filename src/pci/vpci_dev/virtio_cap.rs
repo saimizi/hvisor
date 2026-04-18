@@ -14,7 +14,7 @@
 // Authors:
 //
 
-use core::{array::from_fn, sync::atomic::fence};
+use core::{array::from_fn, fmt::Debug, sync::atomic::fence};
 
 // use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
 use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
@@ -39,6 +39,10 @@ use crate::{
 };
 
 pub type PciCapabilityHandler = fn(&mut MMIOAccess, usize) -> HvResult;
+
+struct VirtioPCIInterface{
+    
+}
 
 const VIRTQ_DESC_F_NEXT: u16 = 1;
 const VIRTIO_F_VERSION_1: usize = 32;
@@ -79,7 +83,7 @@ fn put_together(src: (u8, u8, u8, u8)) -> u32 {
     a
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum VirtioCfgType {
     CommonCfg,
     NotifyCfg(u32),
@@ -105,6 +109,7 @@ impl From<VirtioCfgType> for u8 {
 }
 
 /// Corresponding to the struct 'virtio_pci_cap' defined in virtio manual(virtio-v1.2-csd01)
+#[derive(Debug)]
 pub struct VirtioPciCap {
     cap_vndr: u8,
     cap_next: u8,
@@ -244,6 +249,7 @@ impl VirtioPciCap {
     }
 }
 
+#[derive(Debug)]
 pub struct Virtqueue {
     queue_size: u16,
     queue_msix_vector: u16,
@@ -390,6 +396,7 @@ impl Virtqueue {
     }
 }
 
+#[derive(Debug)]
 pub struct VirtioPciCommonCfg {
     device_feature_select: u32,
     device_feature: (u32, u32),
@@ -655,23 +662,46 @@ impl AreaInBar for VirtioPciCommonCfg {
 /// Bar area is just a MMIO memory area
 /// There are many virtio capability structures such as commoncfg being put in bar
 /// Any structure put in bar has to implement this trait and be registered by function 'register_bar_area'
-pub trait AreaInBar: Send + Sync {
+pub trait AreaInBar: Send + Sync + Debug{
     fn read(&mut self, mmio_ac: &mut MMIOAccess) -> HvResult;
 
     fn write(&mut self, mmio_ac: &MMIOAccess) -> HvResult;
 }
 
+#[derive(Debug)]
+pub struct BarArea{
+    size:usize,
+    area:Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>,
+}
+
+impl BarArea{
+    pub fn new(size:usize)->Self{
+        Self { size, area: Vec::new() }
+    }
+
+    pub fn set_size(&mut self,size:usize){
+        self.size = size;
+    }
+}
+
 /// This structure is responsible for mmio route
 /// Capability A may share the same bar with Capability B.When a mmio is triggered, we need a router to decide which capability will handle this mmio.
+#[derive(Debug)]
 pub struct BarAreaManager {
     area: [Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>; 6],
+    // area: [BarArea; 6],
 }
 
 impl BarAreaManager {
     pub fn new() -> Self {
         BarAreaManager {
             area: from_fn(|_| Vec::new()),
+            // area: from_fn(|_| BarArea::new(0)),
         }
+    }
+
+    pub fn set_bar_size(&mut self,bar:usize,size: usize){
+        // self.area[bar].set_size(size);
     }
 
     pub fn insert(
@@ -977,6 +1007,7 @@ impl AreaInBar for MsixTable {
     }
 }
 
+#[derive(Debug)]
 pub struct VirtioISRCap {
     isr: u32,
 }
@@ -1011,6 +1042,7 @@ impl AreaInBar for VirtioISRCap {
     }
 }
 
+#[derive(Debug)]
 pub struct VirtioNotifyCap {
     cap: VirtioPciCap,
     queue_list: Vec<(usize, Arc<RwLock<Virtqueue>>)>,

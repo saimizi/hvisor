@@ -118,6 +118,7 @@ pub fn check_events() -> bool {
             true
         }
         Some(IPI_EVENT_VIRTIO_PCI_DONE) => {
+            // Virtio PCI notice
             unsafe {
                 VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
             }

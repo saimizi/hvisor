@@ -20,13 +20,13 @@ use spin::rwlock::RwLock;
 use super::{PciConfigAccessStatus, VpciDeviceHandler};
 use crate::cpu_data::this_zone;
 use crate::memory::MMIOAccess;
+use crate::pci::config_accessors::PciRegion;
 use crate::pci::pci_access::{
     BaseClass, DeviceId, DeviceRevision, EndpointField, Interface, PciMemType, SubClass, VendorId,
 };
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, CapabilityType, PciCapability};
 use crate::pci::vpci_dev::virtio_cap::{
-    MsixCap, MsixTable, VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue,
-    MAPTI_INTERCEPTOR,
+    BarAreaManager, MAPTI_INTERCEPTOR, MsixCap, MsixTable, VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue
 };
 use crate::pci::PciConfigAddress;
 use crate::{error::HvResult, pci::pci_struct::VirtualPciConfigSpace};
@@ -219,4 +219,127 @@ pub fn rng_mmio_handler(mmio: &mut MMIOAccess, base: usize) -> HvResult {
         return found_dev.bar_mmio_distribute(bar, mmio);
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct RngPCIDevice {
+    basic:Arc<RwLock<BasicConfig>>,
+    bar:Arc<RwLock<BarAreaManager>>,
+}
+
+#[derive(Debug)]
+pub struct BasicConfig{
+    // pub vendor_id:u16,
+    // pub device_id:u16,
+    pub id:u32,
+    pub command:u16,
+    pub status:u16,
+    pub revision_and_class:u32,
+    // cache_line_size:u8,
+    // latency_time:u8,
+    // header_type:u8,
+    // bist:u8,
+    // pub card_cis_pointer:u32,
+    pub subsystem_vendor_id:u16,
+    pub subsystem_id:u16,
+    // bar:BarAreaManager,
+    // expansion_rom_bar:u32,
+    pub capability_pointer:u8,
+    // interrupt_line:u8,
+    // interrupt_pin:u8,
+    // min_gnt:u8,
+    // max_lat:u8,
+
+}
+
+impl PciRegion for RngPCIDevice{
+    fn read_u8(&self, offset: PciConfigAddress) -> HvResult<u8> {
+        match EndpointField::from(offset as usize, 1){
+            EndpointField::CapabilityPointer => {
+                Ok(self.basic.read().capability_pointer)
+            }
+            _=>{
+                warn!("This u8 read has not been implement:{:?}",offset);
+                Ok(0)
+            }
+        }
+    }
+
+    fn write_u8(&self, offset: PciConfigAddress, value: u8) -> HvResult {
+        match EndpointField::from(offset as usize, 1){
+            _=>{ 
+                warn!("This u8 write has not been implement:{:?}",offset);
+                Ok(())
+            }
+        }
+    }
+
+    fn read_u16(&self, offset: PciConfigAddress) -> HvResult<u16> {
+        match EndpointField::from( offset as usize, 2){
+            EndpointField::Command => {
+                Ok(self.basic.read().command)
+            }
+            EndpointField::Status => {
+                Ok(self.basic.read().status)
+            }
+            EndpointField::SubsystemId => {
+                Ok(self.basic.read().subsystem_id)
+            }
+            EndpointField::SubsystemVendorId => {
+                Ok(self.basic.read().subsystem_vendor_id)
+            }
+            _=>{
+                warn!("This u16 read has not been implement:{:?}",offset);
+                Ok(0)
+            }
+        }
+    }
+
+    fn write_u16(&self, offset: PciConfigAddress, value: u16) -> HvResult {
+        match EndpointField::from(offset as usize, 2){
+            EndpointField::Command => {
+                self.basic.write().command = value;
+                Ok(())
+            }
+            EndpointField::Status => {
+                self.basic.write().status = value;
+                Ok(())
+            }
+            _=>{
+                warn!("This u16 write has not been implement:{:?}",offset);
+                Ok(())
+            }
+        }
+    }
+
+    fn read_u32(&self, offset: PciConfigAddress) -> HvResult<u32> {
+        match EndpointField::from(offset as usize, 4){
+            EndpointField::ID => {
+                Ok(self.basic.read().id)
+            }
+            EndpointField::RevisionIDAndClassCode => {
+                Ok(self.basic.read().revision_and_class)
+            }
+            EndpointField::Bar(n) => {
+                Ok(0)
+            }
+            _=>{
+                warn!("This u32 read has not been implement:{:?}",offset);
+                Ok(0)
+            }
+        }
+    }
+
+    fn write_u32(&self, offset: PciConfigAddress, value: u32) -> HvResult {
+        match EndpointField::from(offset as usize, 4){
+            EndpointField::Bar(n)=>{
+                Ok(())
+            }
+            _=>{
+                warn!("This u32 write has not been implement:{:?}",offset);
+                Ok(())
+            }
+        }
+    }
+
 }

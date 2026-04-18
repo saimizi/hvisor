@@ -334,6 +334,7 @@ impl Cmdq {
                 let icid = vicid_to_icid_checked(vicid);
                 set_cmd2_icid(&mut new_cmd[2], icid);
                 enable_one_lpi((intid - 8192) as _);
+                // Virtio PCI notice
                 unsafe {
                     virtio_pci_intercept_its(id as usize, event as usize, intid as usize);
                 }

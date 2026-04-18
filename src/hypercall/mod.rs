@@ -331,7 +331,7 @@ impl<'a> HyperCall<'a> {
 
     fn hv_virtio_pci_done(&mut self, data_req_id: u64) -> HyperCallResult {
         let cpu_id = (data_req_id & 0x0000_ffff_0000_0000) >> 32;
-
+        // Virtio PCI notice
         unsafe {
             virtio_pci_add_pending_data_req_id(data_req_id);
         }

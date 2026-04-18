@@ -16,7 +16,7 @@
 
 use core::{marker::PhantomData, mem::size_of};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,Debug)]
 pub struct GuestMemory {
     ptr: usize,
     size: usize,
@@ -62,7 +62,7 @@ impl GuestMemory {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,Debug)]
 pub struct GuestSlice<T> {
     mem: GuestMemory,
     // base: u64,
@@ -131,7 +131,7 @@ pub struct VirtqDesc {
 pub type DescriptorTable = GuestSlice<VirtqDesc>;
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,Debug)]
 pub struct AvailRing {
     mem: GuestMemory,
     // base: u64,
@@ -172,7 +172,7 @@ impl VirtqUsedElem {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,Debug)]
 pub struct VirtqUsed {
     mem: GuestMemory,
     queue_size: u16,
