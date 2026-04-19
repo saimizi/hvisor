@@ -18,6 +18,7 @@ use core::{array::from_fn, fmt::Debug, sync::atomic::fence};
 
 // use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
 use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
+use bitflags::iter;
 use spin::{rwlock::RwLock, Lazy};
 
 use crate::{
@@ -679,29 +680,40 @@ impl BarArea{
         Self { size, area: Vec::new() }
     }
 
+    pub fn iter(
+        &self,
+    ) -> core::slice::Iter<'_, (GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
+        self.area.iter()
+    }
+
     pub fn set_size(&mut self,size:usize){
         self.size = size;
     }
+
+    pub fn push(&mut self,bar_area:(usize,GuestPhysAddr,Arc<RwLock<dyn AreaInBar>>)){
+        self.area.push(bar_area);
+    }
 }
+
 
 /// This structure is responsible for mmio route
 /// Capability A may share the same bar with Capability B.When a mmio is triggered, we need a router to decide which capability will handle this mmio.
 #[derive(Debug)]
 pub struct BarAreaManager {
-    area: [Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>; 6],
-    // area: [BarArea; 6],
+    // area: [Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>; 6],
+    area: [BarArea; 6],
 }
 
 impl BarAreaManager {
     pub fn new() -> Self {
         BarAreaManager {
-            area: from_fn(|_| Vec::new()),
-            // area: from_fn(|_| BarArea::new(0)),
+            // area: from_fn(|_| Vec::new()),
+            area: from_fn(|_| BarArea::new(0)),
         }
     }
 
     pub fn set_bar_size(&mut self,bar:usize,size: usize){
-        // self.area[bar].set_size(size);
+        self.area[bar].set_size(size);
     }
 
     pub fn insert(

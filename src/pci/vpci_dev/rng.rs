@@ -22,7 +22,7 @@ use crate::cpu_data::this_zone;
 use crate::memory::MMIOAccess;
 use crate::pci::config_accessors::PciRegion;
 use crate::pci::pci_access::{
-    BaseClass, DeviceId, DeviceRevision, EndpointField, Interface, PciMemType, SubClass, VendorId,
+    Bar, BaseClass, DeviceId, DeviceRevision, EndpointField, Interface, PciMemType, PciRW, PciRWBase, SubClass, VendorId
 };
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, CapabilityType, PciCapability};
 use crate::pci::vpci_dev::virtio_cap::{
@@ -125,6 +125,8 @@ impl VpciDeviceHandler for VirtioRngHandler {
         let base_class: BaseClass = 0x0;
         let sub_class: SubClass = 0x0;
         let interface: Interface = 0x0;
+        let rng_dev = RngPCIDevice::new();
+        // dev.set_backend(Arc::new(rng_dev));
         dev.with_config_value_mut(|config_value| {
             config_value.set_id(id);
             config_value.set_class_and_revision_id((base_class, sub_class, interface, revision));
@@ -227,6 +229,25 @@ pub struct RngPCIDevice {
     bar:Arc<RwLock<BarAreaManager>>,
 }
 
+impl PciRWBase for RngPCIDevice{
+    fn backend(&self) -> &dyn PciRegion {
+        return self;
+    }
+}
+
+impl PciRW for RngPCIDevice{
+
+}
+
+impl RngPCIDevice{
+    pub fn new()->Self{
+        Self { 
+            basic: arc_rwlock!(BasicConfig::dummy()),
+            bar: arc_rwlock!(BarAreaManager::new())
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BasicConfig{
     // pub vendor_id:u16,
@@ -249,6 +270,73 @@ pub struct BasicConfig{
     // interrupt_pin:u8,
     // min_gnt:u8,
     // max_lat:u8,
+
+}
+
+impl BasicConfig{
+    pub fn new(id:u32,capability_pointer:u8)->Self{
+        Self { id, command: 0, status: 0, revision_and_class: 0, subsystem_vendor_id: 0, subsystem_id: 0, capability_pointer }
+    }
+
+    pub fn dummy()->Self{
+        Self::new(0,0)
+    }
+
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn set_id(&mut self, id: u32) {
+        self.id = id;
+    }
+
+    pub fn get_command(&self) -> u16 {
+        self.command
+    }
+
+    pub fn set_command(&mut self, command: u16) {
+        self.command = command;
+    }
+
+    pub fn get_status(&self) -> u16 {
+        self.status
+    }
+
+    pub fn set_status(&mut self, status: u16) {
+        self.status = status;
+    }
+
+    pub fn get_revision_and_class(&self) -> u32 {
+        self.revision_and_class
+    }
+
+    pub fn set_revision_and_class(&mut self, revision_and_class: u32) {
+        self.revision_and_class = revision_and_class;
+    }
+
+    pub fn get_subsystem_vendor_id(&self) -> u16 {
+        self.subsystem_vendor_id
+    }
+
+    pub fn set_subsystem_vendor_id(&mut self, subsystem_vendor_id: u16) {
+        self.subsystem_vendor_id = subsystem_vendor_id;
+    }
+
+    pub fn get_subsystem_id(&self) -> u16 {
+        self.subsystem_id
+    }
+
+    pub fn set_subsystem_id(&mut self, subsystem_id: u16) {
+        self.subsystem_id = subsystem_id;
+    }
+
+    pub fn get_capability_pointer(&self) -> u8 {
+        self.capability_pointer
+    }
+
+    pub fn set_capability_pointer(&mut self, capability_pointer: u8) {
+        self.capability_pointer = capability_pointer;
+    }
 
 }
 

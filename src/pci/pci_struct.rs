@@ -799,6 +799,10 @@ impl VirtualPciConfigSpace {
         }
     }
 
+    pub fn set_backend(&mut self,backend: Arc<dyn PciRW>){
+        self.backend = backend
+    }
+
     pub fn unknown(
         bdf: Bdf,
         base: PciConfigAddress,
