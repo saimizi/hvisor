@@ -739,17 +739,18 @@ impl VirtualPciConfigSpace {
         //         return;
         //     }
         // };
-        let msix_entries = match self.get_pending_msix() {
-            Some(x) => x,
-            None => {
-                warn!("can't find corresponding msix entry!");
-                return;
-            }
-        };
         let msix_backend = match self.get_msix_backend() {
             Some(x) => x,
             None => {
-                warn!("There is no msix backend in this device!");
+                // warn!("There is no msix backend in this device!");
+                return;
+            }
+        };
+
+        let msix_entries = match self.get_pending_msix() {
+            Some(x) => x,
+            None => {
+                // warn!("can't find corresponding msix entry!");
                 return;
             }
         };
