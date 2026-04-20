@@ -28,7 +28,7 @@ use super::{
     PciConfigAddress,
 };
 
-use crate::error::HvResult;
+use crate::{cpu_data::this_zone, error::HvResult, memory::MMIOAccess};
 
 pub type VendorId = u16;
 pub type DeviceId = u16;
@@ -111,6 +111,8 @@ impl Debug for PciMemType {
     }
 }
 
+pub type PciBARMMIOHanlder = fn(mmio: &mut MMIOAccess, base: usize) -> HvResult;
+
 /* PciMem
  * virtaul_value: the vaddr guset zone can rw, same with as the corresponding value in virtualconfigspace.space
  * value: the paddr which hvisor and hw can rw, init when hvisor init the pci bus
@@ -127,10 +129,47 @@ pub struct PciMem {
     size: u64,
     prefetchable: bool,
     size_read: bool,
-    // cap_handler:Option<BTreeMap<usize,usize>>
+    handler: Option<PciBARMMIOHanlder>, // cap_handler:Option<BTreeMap<usize,usize>>
 }
 
 impl PciMem {
+    pub fn write(&mut self, value: u32) {
+        if value == 0xffff_ffff {
+            self.set_size_read();
+        } else if value == 0x0 {
+            // do nothing
+        } else {
+            match self.handler {
+                Some(handler) => {
+                    let zone = this_zone();
+                    let mut guard = zone.write();
+                    guard.mmio_region_register(
+                        value as usize,
+                        self.size as usize,
+                        handler,
+                        value as usize,
+                    );
+                    drop(guard);
+                    self.clear_size_read();
+                    self.set_virtual_value(value as u64);
+                }
+                None => {
+                    warn!("This bar has not register handler!");
+                }
+            }
+        }
+    }
+
+    // I don't know if it's correct to make the return value be u64
+    pub fn read(&self) -> u64 {
+        // let bar = &space.get_bararr()[n];
+        if self.get_size_read() {
+            return self.get_size();
+        } else {
+            return self.get_virtual_value() as u64;
+        }
+    }
+
     pub fn new_bar(bar_type: PciMemType, value: u64, size: u64, prefetchable: bool) -> Self {
         Self {
             bar_type,
@@ -139,7 +178,7 @@ impl PciMem {
             size,
             prefetchable,
             size_read: false,
-            // cap_handler:None
+            handler: None,
         }
     }
 
@@ -151,7 +190,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
-            // cap_handler:None
+            handler: None,
         }
     }
 
@@ -163,7 +202,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
-            // cap_handler:None
+            handler: None,
         }
     }
 
@@ -175,7 +214,7 @@ impl PciMem {
             size,
             prefetchable: false,
             size_read: false,
-            // cap_handler:None
+            handler: None,
         }
     }
 
@@ -217,11 +256,19 @@ impl PciMem {
         self.prefetchable = prefetchable;
     }
 
-    pub fn config_init(&mut self, bar_type: PciMemType, prefetchable: bool, size: u64, value: u64) {
+    pub fn config_init(
+        &mut self,
+        bar_type: PciMemType,
+        prefetchable: bool,
+        size: u64,
+        value: u64,
+        handler: Option<PciBARMMIOHanlder>,
+    ) {
         self.set_bar_type(bar_type);
         self.set_prefetchable(prefetchable);
         self.set_size(size);
         self.set_value(value);
+        self.set_handler(handler);
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -246,6 +293,10 @@ impl PciMem {
      */
     pub fn get_value64(&self) -> u64 {
         self.value as u64
+    }
+
+    pub fn set_handler(&mut self, handler: Option<PciBARMMIOHanlder>) {
+        self.handler = handler
     }
 
     /* Automatically add flags */
@@ -416,6 +467,16 @@ impl Debug for PciMem {
 #[derive(Clone, Default)]
 pub struct Bar {
     bararr: [PciMem; 6],
+}
+
+impl Bar {
+    pub fn write_bar(&mut self, index: usize, value: u32) {
+        self.bararr[index].write(value);
+    }
+
+    pub fn read_bar(&self, index: usize) -> u32 {
+        self.bararr[index].read() as u32
+    }
 }
 
 impl Index<usize> for Bar {

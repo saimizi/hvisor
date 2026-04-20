@@ -23,7 +23,6 @@ use crate::cpu_data::{get_cpu_data, PerCpu};
 use crate::device::virtio_trampoline::{MAX_DEVS, VIRTIO_BRIDGE, VIRTIO_IRQS, VIRTIO_PCI_BRIDGE};
 use crate::error::HvResult;
 use crate::pci::pci_config::GLOBAL_PCIE_LIST;
-use crate::pci::vpci_dev::virtio_cap::virtio_pci_add_pending_data_req_id;
 use crate::zone::{
     add_zone, all_zones_info, find_zone, is_this_root_zone, remove_zone, zone_create, ZoneInfo,
 };
@@ -332,9 +331,9 @@ impl<'a> HyperCall<'a> {
     fn hv_virtio_pci_done(&mut self, data_req_id: u64) -> HyperCallResult {
         let cpu_id = (data_req_id & 0x0000_ffff_0000_0000) >> 32;
         // Virtio PCI notice
-        unsafe {
-            virtio_pci_add_pending_data_req_id(data_req_id);
-        }
+        // unsafe {
+        //     virtio_pci_add_pending_data_req_id(data_req_id);
+        // }
         send_event(
             cpu_id as usize,
             SGI_IPI_ID as usize,

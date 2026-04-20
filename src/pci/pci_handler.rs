@@ -54,6 +54,82 @@ macro_rules! pci_log {
     };
 }
 
+fn handle_virtio_pci_request(
+    dev: ArcRwLockVirtualPciConfigSpace,
+    offset: PciConfigAddress,
+    size: usize,
+    value: usize,
+    is_write: bool,
+) -> HvResult<Option<usize>> {
+    info!(
+        "offset:0x{:x},size:0x{:x},value:0x{:x},is_write:{}",
+        offset, size, value, is_write
+    );
+    let res = if is_write {
+        handle_virtio_pci_write(dev, offset, size, value)
+    } else {
+        handle_virtio_pci_read(dev, offset, size)
+    };
+    info!("result:{:x?}", res);
+    res
+}
+
+fn handle_virtio_pci_read(
+    dev: ArcRwLockVirtualPciConfigSpace,
+    offset: PciConfigAddress,
+    size: usize,
+) -> HvResult<Option<usize>> {
+    match EndpointField::from(offset as usize, size) {
+        EndpointField::ID => dev.with_config_value(|x| {
+            let id = x.get_id();
+            let res = ((id.0 as usize) << 16) | (id.1 as usize);
+            Ok(Some(res))
+        }),
+
+        EndpointField::Bar(n) => dev.with_bar_ref(n, |x| Ok(Some(x.read() as usize))),
+
+        EndpointField::Status => {
+            // enable capability list
+            Ok(Some(0x0010))
+        }
+
+        EndpointField::Command => {
+            // This is necessary for virtio pci
+            Ok(Some(0x0010_0406))
+        }
+
+        EndpointField::RevisionIDAndClassCode => Ok(Some(0xff00_0000)),
+
+        EndpointField::CapabilityPointer => {
+            dev.with_cap(|x| Ok(Some(x.get_capability_pointer() as usize)))
+        }
+
+        _ => {
+            dev.with_cap(|x| Ok(x.try_read_cap(offset, size)))
+            // Ok(None)
+        }
+    }
+}
+
+fn handle_virtio_pci_write(
+    dev: ArcRwLockVirtualPciConfigSpace,
+    offset: PciConfigAddress,
+    size: usize,
+    value: usize,
+) -> HvResult<Option<usize>> {
+    match EndpointField::from(offset as usize, size) {
+        EndpointField::Bar(n) => dev.with_bar_ref_mut(n, |x| {
+            x.write(value as u32);
+            Ok(Some(0))
+        }),
+        _ => {
+            // TODO: Add some warning here in case try write cap failed
+            dev.with_cap(|x| Ok(x.try_write_cap(offset, size, value)))
+            // Ok(None)
+        }
+    }
+}
+
 fn handle_virt_pci_request(
     dev: ArcRwLockVirtualPciConfigSpace,
     offset: PciConfigAddress,
@@ -614,10 +690,15 @@ fn handle_config_space_access(
                     _ => {
                         // virt pci dev
                         if let Some(val) =
-                            handle_virt_pci_request(dev, offset, size, value, is_write, dev_type)?
+                            handle_virtio_pci_request(dev, offset, size, value, is_write)?
                         {
-                            mmio.value = val;
+                            mmio.value = val
                         }
+                        // if let Some(val) =
+                        //     handle_virt_pci_request(dev, offset, size, value, is_write, dev_type)?
+                        // {
+                        //     mmio.value = val;
+                        // }
                     }
                 }
             }

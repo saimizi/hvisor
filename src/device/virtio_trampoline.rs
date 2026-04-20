@@ -28,7 +28,7 @@ use crate::{
 };
 use crate::{
     arch::cpu::this_cpu_id, consts::MAX_WAIT_TIMES, device::irqchip::inject_irq, error::HvResult,
-    memory::MMIOAccess, pci::vpci_dev::virtio_queue::GuestMemory, zone::this_zone_id,
+    memory::MMIOAccess, pci::vpci_dev::tools::GuestMemory, zone::this_zone_id,
 };
 use alloc::collections::BTreeMap;
 use core::{
@@ -405,23 +405,42 @@ pub struct VirtioPCIDataInfo {
     dev_id: u16,
     queue_id: u16,
     cpu_id: u16,
-    _padding: u16,
+    msix_vector_idx: u16,
 }
 
 impl VirtioPCIDataInfo {
-    pub fn new(dev_id: u16, queue_id: u16) -> Self {
+    pub fn new(dev_id: u16, queue_id: u16, msix_vector_idx: u16) -> Self {
         let cpu_id = this_cpu_id() as u16;
         Self {
             dev_id,
             queue_id,
             cpu_id,
-            _padding: 0xff,
+            msix_vector_idx,
         }
     }
 
     pub fn get_identifier(&self) -> u64 {
         (self.dev_id as u64) | ((self.queue_id as u64) << 16) | ((self.cpu_id as u64) << 32)
     }
+
+    // pub fn from_u64(data_req_id:u64)->Self{
+    //     let dev_id = data_req_id&0x0000_0000_0000_ffff;
+    //     let msix_vector_idx = data_req_id&0x0000_0000_ffff_0000;
+    //     let cpu_id = data_req_id&0x0000_ffff_0000_0000;
+    //     Self { dev_id: dev_id as u16, msix_vector_idx: msix_vector_idx as u16, cpu_id: cpu_id as u16, _padding: 0x0000 }
+    // }
+
+    // pub fn get_dev_id(&self)->u16{
+    //     self.dev_id
+    // }
+
+    pub fn get_msix_vector_idx(&self) -> u16 {
+        self.msix_vector_idx
+    }
+
+    // pub fn get_cpu_id(&self)->u16{
+    //     self.cpu_id
+    // }
 }
 
 pub struct VirtioPCIBridge {

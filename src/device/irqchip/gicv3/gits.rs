@@ -15,7 +15,8 @@
 //
 use core::ptr;
 
-use crate::pci::vpci_dev::virtio_cap::virtio_pci_intercept_its;
+use crate::device::irqchip::gicv3::msix_backend::msix_intercept_its;
+// use crate::pci::vpci_dev::virtio_cap::virtio_pci_intercept_its;
 use crate::{
     consts::MAX_ZONE_NUM, cpu_data::this_zone, device::irqchip::gicv3::gicr::enable_one_lpi,
     memory::Frame, pci::pci_struct::Bdf,
@@ -335,9 +336,10 @@ impl Cmdq {
                 set_cmd2_icid(&mut new_cmd[2], icid);
                 enable_one_lpi((intid - 8192) as _);
                 // Virtio PCI notice
-                unsafe {
-                    virtio_pci_intercept_its(id as usize, event as usize, intid as usize);
-                }
+                // unsafe {
+                //     virtio_pci_intercept_its(id as usize, event as usize, intid as usize);
+                // }
+                msix_intercept_its(id, event, intid);
                 debug!(
                     "MAPTI cmd, for vbdf {:#x}:{:#x}:{:#x}:{:#x} -> {:#x}:{:#x}:{:#x}:{:#x}, event {:#x} -> vicid {:#x} (icid {:#x}) + intid {:#x}",
                     domain, vbus, vdevice, vfunction,

@@ -21,7 +21,7 @@ use crate::{
     },
     cpu_data::this_cpu_data,
     device::{irqchip::inject_irq, virtio_trampoline::handle_virtio_irq},
-    pci::vpci_dev::virtio_cap::VIRTIO_MSIX_MANAGER,
+    pci::msix::activate_msix,
     platform::{
         IRQ_WAKEUP_VIRTIO_DEVICE, IRQ_WAKEUP_VIRTIO_PCI_CONFIG, IRQ_WAKEUP_VIRTIO_PCI_DATA,
     },
@@ -119,9 +119,10 @@ pub fn check_events() -> bool {
         }
         Some(IPI_EVENT_VIRTIO_PCI_DONE) => {
             // Virtio PCI notice
-            unsafe {
-                VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
-            }
+            // unsafe {
+            //     VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
+            // }
+            activate_msix();
             true
         }
         Some(IPI_EVENT_CLEAR_INJECT_IRQ)

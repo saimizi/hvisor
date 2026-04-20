@@ -15,13 +15,16 @@
 //
 
 use crate::error::HvResult;
+use crate::pci::msix::MsixBackend;
 use crate::pci::pci_struct::{
     ArcRwLockVirtualPciConfigSpace, Bdf, CapabilityType, PciCapabilityRegion, VirtualPciConfigSpace,
 };
 use crate::pci::PciConfigAddress;
 
+use alloc::sync::Arc;
 use bitvec::array::BitArray;
 use bitvec::{order::Lsb0, BitArr};
+use spin::RwLock;
 
 macro_rules! pci_virt_log {
     ($($arg:tt)*) => {
@@ -61,10 +64,11 @@ pub(crate) const DEFAULT_CSPACE_U32: [u32; STANDARD_CFG_SIZE / 4] = {
     arr
 };
 
-pub mod rng;
+mod rng;
 pub mod standard;
-pub mod virtio_cap;
-pub mod virtio_queue;
+pub mod tools;
+mod virtio_cap;
+mod virtio_queue;
 /*
  * PciConfigAccessStatus is used to return the result of the config space access
  * Done(usize): the value is returned in usize
@@ -258,6 +262,7 @@ pub(super) fn virt_dev_init(
     bdf: Bdf,
     base: PciConfigAddress,
     dev_type: VpciDevType,
+    msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
 ) -> Option<VirtualPciConfigSpace> {
     #[cfg(feature = "virtio_pci")]
     {
@@ -270,6 +275,8 @@ pub(super) fn virt_dev_init(
             dev_type,
             ConfigValue::default(),
             Bar::default(),
+            msix_backend,
+            None,
         );
 
         match dev_type {

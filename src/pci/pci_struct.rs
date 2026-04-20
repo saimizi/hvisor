@@ -33,11 +33,12 @@ use super::{
 
 use crate::{
     config::HvPciDevConfig,
+    device::virtio_trampoline::VirtioPCIDataInfo,
     error::{HvErrorNum, HvResult},
-    memory::{GuestPhysAddr, MMIOAccess},
-    pci::vpci_dev::{
-        virtio_cap::{AreaInBar, BarAreaManager},
-        VpciDevType,
+    memory::MMIOAccess,
+    pci::{
+        msix::{MsixBackend, MsixTable, MsixTableEntry},
+        vpci_dev::VpciDevType,
     },
 };
 
@@ -371,6 +372,8 @@ pub struct VirtualPciConfigSpace {
     capabilities: PciCapabilityList,
 
     dev_type: VpciDevType,
+    msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
+    msix_table: Option<Arc<RwLock<MsixTable>>>,
 }
 
 #[derive(Clone)]
@@ -554,6 +557,10 @@ impl ArcRwLockVirtualPciConfigSpace {
     pub fn bar_mmio_distribute(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
         self.0.read().bar_mmio_distribute(bar, mmio_ac)
     }
+
+    pub fn try_inject_msix_irq(&self) {
+        self.0.read().inject_msix_irq();
+    }
 }
 
 impl Debug for ArcRwLockVirtualPciConfigSpace {
@@ -704,6 +711,54 @@ impl VirtualPciConfigSpace {
     pub fn bar_mmio_distribute(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
         self.capabilities.handle_bar_read(bar, mmio_ac)
     }
+
+    pub fn get_msix_backend(&self) -> Option<Arc<RwLock<dyn MsixBackend>>> {
+        self.msix_backend.clone()
+    }
+
+    pub fn get_msix_entry(&self, data_info: VirtioPCIDataInfo) -> Option<MsixTableEntry> {
+        // let data_info=VirtioPCIDataInfo::from_u64(data_req_id);
+        let msix_idx = data_info.get_msix_vector_idx();
+        let msix_table = self.msix_table.clone()?;
+        let entry = msix_table.read().get_entry(msix_idx as usize);
+        entry
+    }
+
+    pub fn get_pending_msix(&self) -> Option<Vec<MsixTableEntry>> {
+        let msix_table = self.msix_table.clone()?;
+        let res = msix_table.write().get_pending_msix_vector();
+        res
+    }
+
+    pub fn inject_msix_irq(&self) {
+        // let data_info = VirtioPCIDataInfo::from_u64(data_req_id);
+        // let msix_entry = match self.get_msix_entry(data_info){
+        //     Some(x)=>x,
+        //     None=>{
+        //         warn!("can't find corresponding msix entry!");
+        //         return;
+        //     }
+        // };
+        let msix_entries = match self.get_pending_msix() {
+            Some(x) => x,
+            None => {
+                warn!("can't find corresponding msix entry!");
+                return;
+            }
+        };
+        let msix_backend = match self.get_msix_backend() {
+            Some(x) => x,
+            None => {
+                warn!("There is no msix backend in this device!");
+                return;
+            }
+        };
+        for i in msix_entries {
+            msix_backend
+                .read()
+                .activate_irq(self.bdf.requester_id() as usize, &i);
+        }
+    }
 }
 
 impl Debug for VirtualPciConfigSpace {
@@ -723,6 +778,8 @@ impl VirtualPciConfigSpace {
         dev_type: VpciDevType,
         config_value: ConfigValue,
         bararr: Bar,
+        msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
+        msix_table: Option<Arc<RwLock<MsixTable>>>,
     ) -> Self {
         Self {
             host_bdf: Bdf::default(),
@@ -742,6 +799,8 @@ impl VirtualPciConfigSpace {
             rom: PciMem::default(),
             capabilities: PciCapabilityList::new(),
             dev_type,
+            msix_backend,
+            msix_table,
         }
     }
 
@@ -769,6 +828,8 @@ impl VirtualPciConfigSpace {
             rom,
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
+            msix_backend: None,
+            msix_table: None,
         }
     }
 
@@ -796,10 +857,12 @@ impl VirtualPciConfigSpace {
             rom,
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
+            msix_backend: None,
+            msix_table: None,
         }
     }
 
-    pub fn set_backend(&mut self,backend: Arc<dyn PciRW>){
+    pub fn set_backend(&mut self, backend: Arc<dyn PciRW>) {
         self.backend = backend
     }
 
@@ -825,6 +888,8 @@ impl VirtualPciConfigSpace {
             rom: PciMem::default(),
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
+            msix_backend: None,
+            msix_table: None,
         }
     }
 
@@ -849,6 +914,8 @@ impl VirtualPciConfigSpace {
             rom: PciMem::default(),
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
+            msix_backend: None,
+            msix_table: None,
         }
     }
 
@@ -893,6 +960,10 @@ impl VirtualPciConfigSpace {
             let bar_value = self.bararr[slot].get_value();
             self.config_value.set_bar_value(slot, bar_value as u32);
         }
+    }
+
+    pub fn set_msix_table(&mut self, msix_table: Arc<RwLock<MsixTable>>) {
+        self.msix_table = Some(msix_table)
     }
 }
 
@@ -1507,6 +1578,7 @@ pub struct VirtualRootComplex {
     devs: BTreeMap<Bdf, ArcRwLockVirtualPciConfigSpace>,
     base_to_bdf: BTreeMap<PciConfigAddress, Bdf>,
     accessor: Option<Arc<dyn PciConfigAccessor>>,
+    msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
 }
 
 impl VirtualRootComplex {
@@ -1515,6 +1587,7 @@ impl VirtualRootComplex {
             devs: BTreeMap::new(),
             base_to_bdf: BTreeMap::new(),
             accessor: None,
+            msix_backend: None,
         }
     }
 
@@ -1570,6 +1643,14 @@ impl VirtualRootComplex {
     ) -> Option<ArcRwLockVirtualPciConfigSpace> {
         let bdf = self.base_to_bdf.get(&base).copied()?;
         self.devs.get(&bdf).cloned()
+    }
+
+    pub fn get_msix_backend(&self) -> Option<Arc<RwLock<dyn MsixBackend>>> {
+        self.msix_backend.clone()
+    }
+
+    pub fn set_msix_backend(&mut self, backend: Option<Arc<RwLock<dyn MsixBackend>>>) {
+        self.msix_backend = backend
     }
 }
 
@@ -1741,6 +1822,7 @@ impl CapabilityType {
 pub struct PciCapability {
     cap_type: CapabilityType,
     region: Arc<RwLock<dyn PciCapabilityRegion>>,
+    // bar_usage:Option<Arc<RwLock<dyn AreaInBar>>>
 }
 
 impl PciCapability {
@@ -1780,6 +1862,7 @@ impl PciCapability {
                 return Some(PciCapability {
                     cap_type: CapabilityType::Msi,
                     region,
+                    // bar_usage:None,
                 });
             }
             _ => {
@@ -1789,6 +1872,7 @@ impl PciCapability {
                 Some(PciCapability {
                     cap_type: CapabilityType::from_id(id),
                     region,
+                    // bar_usage:None,
                 })
             }
         }
@@ -1798,11 +1882,16 @@ impl PciCapability {
         Self {
             cap_type: CapabilityType::Vendor,
             region,
+            // bar_usage:None,
         }
     }
 
     pub fn new_cap(cap_type: CapabilityType, region: Arc<RwLock<dyn PciCapabilityRegion>>) -> Self {
-        Self { cap_type, region }
+        Self {
+            cap_type,
+            region,
+            // bar_usage:None
+        }
     }
 
     pub fn get_offset(&self) -> PciConfigAddress {
@@ -1816,6 +1905,10 @@ impl PciCapability {
     fn next_cap(&self) -> HvResult<PciConfigAddress> {
         self.with_region(|region| region.next_cap())
     }
+
+    // fn set_bar_area(&mut self,bar_area:Arc<RwLock<dyn AreaInBar>>){
+    //     self.bar_usage = Some(bar_area)
+    // }
 }
 
 impl Debug for PciCapability {
@@ -1846,6 +1939,20 @@ pub trait PciCapabilityRegion: Send + Sync {
         let next_offset = (value as u16).get_bits(8..16) as PciConfigAddress;
         Ok(next_offset)
     }
+
+    fn bar_area(&self) -> Option<Arc<RwLock<dyn AreaInBar>>> {
+        None
+    }
+
+    fn bar_usage(&self) -> Option<usize> {
+        None
+    }
+
+    fn bar_addr_range(&self) -> Option<Range<usize>> {
+        None
+    }
+
+    fn set_bar_area(&mut self, _bar_area: Arc<RwLock<dyn AreaInBar>>) {}
 }
 
 pub struct StandardPciCapabilityRegion {
@@ -1887,45 +1994,130 @@ impl PciCapabilityRegion for StandardPciCapabilityRegion {
 
 #[derive(Clone)]
 pub struct PciCapabilityList {
+    capability_ptr: u8,
     cap_in_config: BTreeMap<PciConfigAddress, PciCapability>,
-    cap_in_bar: Arc<RwLock<BarAreaManager>>,
+    // cap_in_bar: Arc<RwLock<BarAreaManager>>,
 }
 
 impl PciCapabilityList {
     pub fn new() -> Self {
         Self {
+            capability_ptr: 0,
             cap_in_config: BTreeMap::new(),
-            cap_in_bar: Arc::new(RwLock::new(BarAreaManager::new())),
+            // cap_in_bar: Arc::new(RwLock::new(BarAreaManager::new())),
         }
+    }
+
+    pub fn get_capability_pointer(&self) -> u8 {
+        self.capability_ptr
+    }
+
+    pub fn set_capability_pointer(&mut self, ptr: u8) {
+        self.capability_ptr = ptr;
+    }
+
+    pub fn try_read_cap(&self, offset: PciConfigAddress, size: usize) -> Option<usize> {
+        let cap = self.which_cap(offset)?;
+        let relative_offset = offset - cap.get_offset();
+        match cap.region.clone().read().read(relative_offset, size) {
+            Ok(res) => Some(res as usize),
+            Err(_) => None,
+        }
+    }
+
+    pub fn try_write_cap(
+        &self,
+        offset: PciConfigAddress,
+        size: usize,
+        value: usize,
+    ) -> Option<usize> {
+        let cap = self.which_cap(offset)?;
+        let relative_offset = offset - cap.get_offset();
+        match cap
+            .region
+            .clone()
+            .write()
+            .write(relative_offset, size, value as u32)
+        {
+            Ok(_) => Some(0),
+            Err(_) => None,
+        }
+    }
+
+    pub fn which_cap(&self, offset: PciConfigAddress) -> Option<PciCapability> {
+        let kv_pair = self.cap_in_config.range(..=offset).next_back()?;
+        Some(kv_pair.1.clone())
     }
 
     pub fn insert_cap(
         &mut self,
-        addr: PciConfigAddress,
+        // addr: PciConfigAddress,
         cap: PciCapability,
     ) -> Option<PciCapability> {
-        self.cap_in_config.insert(addr, cap)
+        // cap.get_offset()
+        self.cap_in_config.insert(cap.get_offset(), cap)
     }
 
-    pub fn register_bar_area(
-        &mut self,
-        bar: usize,
-        bar_relative_addr: GuestPhysAddr,
-        size_in_bar: usize,
-        data: Arc<RwLock<dyn AreaInBar>>,
-    ) {
-        self.cap_in_bar
-            .write()
-            .insert(bar, bar_relative_addr, size_in_bar, data);
-    }
+    // pub fn register_bar_area(
+    //     &mut self,
+    //     bar: usize,
+    //     bar_relative_addr: GuestPhysAddr,
+    //     size_in_bar: usize,
+    //     data: Arc<RwLock<dyn AreaInBar>>,
+    // ) {
+    //     self.cap_in_bar
+    //         .write()
+    //         .insert(bar, bar_relative_addr, size_in_bar, data);
+    // }
 
     pub fn cap_in_config_ref(&self) -> &BTreeMap<PciConfigAddress, PciCapability> {
         &self.cap_in_config
     }
 
-    pub fn handle_bar_read(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
-        self.cap_in_bar.read().handle_bar_access(bar, mmio_ac)
+    fn find_cap_by_bar(&self, bar: usize, addr: usize) -> Option<PciCapability> {
+        for i in self.cap_in_config.values() {
+            if bar != i.region.read().bar_usage()? {
+                continue;
+            }
+            if i.region.read().bar_addr_range()?.contains(&addr) {
+                return Some(i.clone());
+            }
+        }
+        None
     }
+
+    pub fn handle_bar_read(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
+        let addr = mmio_ac.address;
+        let cap = self.find_cap_by_bar(bar, addr);
+        match cap {
+            Some(x) => {
+                let bar = x
+                    .region
+                    .read()
+                    .bar_area()
+                    .expect("This bar area should not be none");
+                if mmio_ac.is_write {
+                    return bar.write().write(mmio_ac);
+                } else {
+                    return bar.write().read(mmio_ac);
+                }
+            }
+            None => {
+                warn!("can't find this addr:0x{:x} in bar:{}", addr, bar);
+                return Ok(());
+            }
+        }
+        // self.cap_in_bar.read().handle_bar_access(bar, mmio_ac)
+    }
+
+    // pub fn get_msix_table(&self)->Option<PciCapability>{
+    //     for (_,i) in self.cap_in_config.iter(){
+    //         if i.cap_type == CapabilityType::MsiX{
+    //             return Some(i.clone());
+    //         }
+    //     }
+    //     return None;
+    // }
 }
 
 impl Debug for PciCapabilityList {
@@ -1996,4 +2188,13 @@ impl VirtualPciConfigSpace {
             _ => false,
         }
     }
+}
+
+/// Bar area is just a MMIO memory area
+/// There are many virtio capability structures such as commoncfg being put in bar
+/// Any structure put in bar has to implement this trait and be registered by function 'register_bar_area'
+pub trait AreaInBar: Send + Sync + Debug {
+    fn read(&mut self, mmio_ac: &mut MMIOAccess) -> HvResult;
+
+    fn write(&mut self, mmio_ac: &MMIOAccess) -> HvResult;
 }

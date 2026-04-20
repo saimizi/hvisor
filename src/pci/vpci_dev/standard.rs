@@ -19,7 +19,7 @@ use crate::error::HvResult;
 use crate::pci::pci_access::{
     BaseClass, DeviceId, DeviceRevision, EndpointField, Interface, SubClass, VendorId,
 };
-use crate::pci::pci_struct::{CapabilityType, PciCapability, VirtualPciConfigSpace};
+use crate::pci::pci_struct::VirtualPciConfigSpace;
 use crate::pci::PciConfigAddress;
 // use crate::memory::frame::Frame;
 use crate::cpu_data::this_zone;
@@ -28,8 +28,6 @@ use crate::pci::pci_access::PciMemType;
 use crate::pci::pci_struct::ArcRwLockVirtualPciConfigSpace;
 use crate::pci::pci_struct::PciCapabilityRegion;
 use crate::pci::vpci_dev::VirtMsiXCap;
-use alloc::sync::Arc;
-use spin::RwLock;
 
 /// Handler for standard virtual PCI devices
 pub struct StandardHandler;
@@ -141,7 +139,7 @@ impl VpciDeviceHandler for StandardHandler {
         let your_addr = 0x0;
         let size = 0x1000;
         dev.with_bararr_mut(|bararr| {
-            bararr[0].config_init(PciMemType::Mem32, false, size as u64, your_addr);
+            bararr[0].config_init(PciMemType::Mem32, false, size as u64, your_addr, None);
         });
 
         // 0x98 is an arbitrary value, used here only for demonstration purposes
@@ -155,12 +153,12 @@ impl VpciDeviceHandler for StandardHandler {
             );
         });
 
-        dev.with_cap_mut(|capabilities| {
-            capabilities.insert_cap(
-                msi_cap_offset,
-                PciCapability::new_cap(CapabilityType::MsiX, Arc::new(RwLock::new(msi_cap))),
-            );
-        });
+        // dev.with_cap_mut(|capabilities| {
+        //     capabilities.insert_cap(
+        //         msi_cap_offset,
+        //         PciCapability::new_cap(CapabilityType::MsiX, Arc::new(RwLock::new(msi_cap))),
+        //     );
+        // });
 
         dev.with_access_mut(|access| {
             access.set_bits(0x34..0x38);

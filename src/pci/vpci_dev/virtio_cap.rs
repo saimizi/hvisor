@@ -14,70 +14,67 @@
 // Authors:
 //
 
-use core::{array::from_fn, fmt::Debug, sync::atomic::fence};
+use core::{fmt::Debug, sync::atomic::fence};
 
 // use aarch64_cpu::registers::VTCR_EL2::SH0::Non;
-use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
-use bitflags::iter;
-use spin::{rwlock::RwLock, Lazy};
+use alloc::{sync::Arc, vec::Vec};
+use spin::rwlock::RwLock;
 
 use crate::{
-    arch::cpu::this_cpu_id,
-    device::{
-        irqchip::inject_irq,
-        virtio_trampoline::{
-            VirtioPCIConfigInfo, VirtioPCIDataInfo, VirtqueueAreaInfo, MAX_DEVS, VIRTIO_PCI_BRIDGE,
-        },
+    device::virtio_trampoline::{
+        VirtioPCIConfigInfo, VirtioPCIDataInfo, VirtqueueAreaInfo, MAX_DEVS, VIRTIO_PCI_BRIDGE,
     },
     error::HvResult,
     event::{send_event, IPI_EVENT_VIRTIO_PCI_CONFIG, IPI_EVENT_VIRTIO_PCI_DATA},
     hypercall::SGI_IPI_ID,
-    memory::{GuestPhysAddr, MMIOAccess},
+    memory::MMIOAccess,
     pci::{
-        pci_struct::PciCapabilityRegion,
+        msix::MsixTable,
+        pci_struct::{AreaInBar, PciCapabilityRegion},
         vpci_dev::virtio_queue::{AvailRing, DescriptorTable, VirtqUsed},
     },
 };
 
 pub type PciCapabilityHandler = fn(&mut MMIOAccess, usize) -> HvResult;
 
-struct VirtioPCIInterface{
-    
-}
+struct VirtioPCIInterface {}
 
 const VIRTQ_DESC_F_NEXT: u16 = 1;
 const VIRTIO_F_VERSION_1: usize = 32;
-pub static mut MAPTI_INTERCEPTOR: Option<Arc<RwLock<MsixTable>>> = None;
-pub static mut VIRTIO_MSIX_MANAGER: Lazy<Arc<RwLock<VirtioPCIMsixManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(VirtioPCIMsixManager::new())));
 
-#[allow(unused_variables)]
-pub unsafe fn virtio_pci_intercept_its(deviceid: usize, event_id: usize, intid: usize) {
-    #[cfg(feature = "virtio_pci")]
-    unsafe {
-        if let Some(x) = MAPTI_INTERCEPTOR.clone() {
-            x.write().intercept_its(deviceid, event_id, intid);
-        }
-    }
-}
+// #[allow(unused_variables)]
+// pub unsafe fn virtio_pci_intercept_its(deviceid: usize, event_id: usize, intid: usize) {
+//     #[cfg(feature = "virtio_pci")]
+//     unsafe {
+//         use crate::pci::msix::MAPTI_INTERCEPTOR;
 
-#[allow(unused_variables)]
-pub unsafe fn virtio_pci_add_pending_data_req_id(data_req_id: u64) {
-    #[cfg(feature = "virtio_pci")]
-    unsafe {
-        VIRTIO_MSIX_MANAGER
-            .write()
-            .add_pending_data_req_id(data_req_id);
-    }
-}
+//         if let Some(x) = MAPTI_INTERCEPTOR.clone() {
+//             x.write().intercept_its(deviceid, event_id, intid);
+//         }
+//     }
+// }
 
-#[allow(unused_variables)]
-pub unsafe fn virtio_pci_activate_all_pending_irq() {
-    #[cfg(feature = "virtio_pci")]
-    unsafe {
-        VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
-    }
-}
+// #[allow(unused_variables)]
+// pub unsafe fn virtio_pci_add_pending_data_req_id(data_req_id: u64) {
+//     #[cfg(feature = "virtio_pci")]
+//     unsafe {
+//         use crate::pci::msix::VIRTIO_MSIX_MANAGER;
+
+//         VIRTIO_MSIX_MANAGER
+//             .write()
+//             .add_pending_data_req_id(data_req_id);
+//     }
+// }
+
+// #[allow(unused_variables)]
+// pub unsafe fn virtio_pci_activate_all_pending_irq() {
+//     #[cfg(feature = "virtio_pci")]
+//     unsafe {
+//         use crate::pci::msix::VIRTIO_MSIX_MANAGER;
+
+//         VIRTIO_MSIX_MANAGER.write().activate_all_pending_irq();
+//     }
+// }
 
 fn put_together(src: (u8, u8, u8, u8)) -> u32 {
     let a = (src.0 as u32) << 24 | (src.1 as u32) << 16 | (src.2 as u32) << 8 | (src.3 as u32);
@@ -112,6 +109,7 @@ impl From<VirtioCfgType> for u8 {
 /// Corresponding to the struct 'virtio_pci_cap' defined in virtio manual(virtio-v1.2-csd01)
 #[derive(Debug)]
 pub struct VirtioPciCap {
+    offset_in_config: usize,
     cap_vndr: u8,
     cap_next: u8,
     cap_len: u8,
@@ -121,6 +119,8 @@ pub struct VirtioPciCap {
     padding: [u8; 2],
     offset: u32,
     length: u32,
+
+    bar_usage: Arc<RwLock<dyn AreaInBar>>,
 }
 
 impl PciCapabilityRegion for VirtioPciCap {
@@ -211,7 +211,7 @@ impl PciCapabilityRegion for VirtioPciCap {
 
     // This is a dummy implement.It's not that the offset of this capability is 0
     fn get_offset(&self) -> crate::pci::PciConfigAddress {
-        0
+        self.offset_in_config as u64
     }
 
     fn get_size(&self) -> usize {
@@ -221,16 +221,34 @@ impl PciCapabilityRegion for VirtioPciCap {
     fn next_cap(&self) -> crate::error::HvResult<crate::pci::PciConfigAddress> {
         Ok(self.cap_next as u64)
     }
+
+    fn bar_area(&self) -> Option<Arc<spin::RwLock<dyn AreaInBar>>> {
+        Some(self.bar_usage.clone())
+    }
+
+    fn set_bar_area(&mut self, _bar_area: Arc<spin::RwLock<dyn AreaInBar>>) {
+        self.bar_usage = _bar_area
+    }
+
+    fn bar_usage(&self) -> Option<usize> {
+        Some(self.bar as usize)
+    }
+
+    fn bar_addr_range(&self) -> Option<core::ops::Range<usize>> {
+        Some((self.offset as usize)..(self.offset + self.length) as usize)
+    }
 }
 
 impl VirtioPciCap {
     pub fn new(
+        offset_in_config: usize,
         config_type: VirtioCfgType,
         cap_next: u8,
         cap_len: u8,
         bar: u8,
         offset: u32,
         length: u32,
+        bar_usage: Arc<RwLock<dyn AreaInBar>>,
     ) -> Self {
         // According to virtio-v1.2-csd01, every capability specially defined by virtio specification is a vender-specific capability,thus the cap_vndr is 0x09
         // Currently, most usage of bar from virtio capabilities is 0x04, but it seems doesn't matter which bar you use
@@ -246,6 +264,8 @@ impl VirtioPciCap {
             padding: [0, 0],
             offset,
             length,
+            offset_in_config,
+            bar_usage,
         }
     }
 }
@@ -309,19 +329,19 @@ impl Virtqueue {
             .inject_irq(self.queue_msix_vector as usize);
     }
 
-    pub fn get_msix_entry(&self) -> MsixTableEntry {
-        self.msix_table
-            .read()
-            .get_entry(self.queue_msix_vector as usize)
-    }
+    // pub fn get_msix_entry(&self) -> MsixTableEntry {
+    //     self.msix_table
+    //         .read()
+    //         .get_entry(self.queue_msix_vector as usize)
+    // }
 
-    pub fn register_interrupt(&self, data_info: VirtioPCIDataInfo) {
-        unsafe {
-            VIRTIO_MSIX_MANAGER
-                .write()
-                .insert(data_info, self.get_msix_entry());
-        }
-    }
+    // pub fn register_interrupt(&self, data_info: VirtioPCIDataInfo) {
+    //     // unsafe {
+    //     //     VIRTIO_MSIX_MANAGER
+    //     //         .write()
+    //     //         .insert(data_info, self.get_msix_entry());
+    //     // }
+    // }
 
     pub fn set_desc_area(&mut self) {
         let base = self.queue_desc as usize;
@@ -393,7 +413,7 @@ impl Virtqueue {
     }
 
     pub fn get_data_info(&self) -> VirtioPCIDataInfo {
-        VirtioPCIDataInfo::new(self.this_dev_id, self.queue_id)
+        VirtioPCIDataInfo::new(self.this_dev_id, self.queue_id, self.queue_msix_vector)
     }
 }
 
@@ -660,364 +680,88 @@ impl AreaInBar for VirtioPciCommonCfg {
     }
 }
 
-/// Bar area is just a MMIO memory area
-/// There are many virtio capability structures such as commoncfg being put in bar
-/// Any structure put in bar has to implement this trait and be registered by function 'register_bar_area'
-pub trait AreaInBar: Send + Sync + Debug{
-    fn read(&mut self, mmio_ac: &mut MMIOAccess) -> HvResult;
+// #[derive(Debug)]
+// pub struct BarArea{
+//     size:usize,
+//     area:Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>,
+// }
 
-    fn write(&mut self, mmio_ac: &MMIOAccess) -> HvResult;
-}
+// impl BarArea{
+//     pub fn new(size:usize)->Self{
+//         Self { size, area: Vec::new() }
+//     }
 
-#[derive(Debug)]
-pub struct BarArea{
-    size:usize,
-    area:Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>,
-}
+//     pub fn iter(
+//         &self,
+//     ) -> core::slice::Iter<'_, (GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
+//         self.area.iter()
+//     }
 
-impl BarArea{
-    pub fn new(size:usize)->Self{
-        Self { size, area: Vec::new() }
-    }
+//     pub fn set_size(&mut self,size:usize){
+//         self.size = size;
+//     }
 
-    pub fn iter(
-        &self,
-    ) -> core::slice::Iter<'_, (GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
-        self.area.iter()
-    }
+//     pub fn push(&mut self,bar_area:(usize,GuestPhysAddr,Arc<RwLock<dyn AreaInBar>>)){
+//         self.area.push(bar_area);
+//     }
+// }
 
-    pub fn set_size(&mut self,size:usize){
-        self.size = size;
-    }
+// /// This structure is responsible for mmio route
+// /// Capability A may share the same bar with Capability B.When a mmio is triggered, we need a router to decide which capability will handle this mmio.
+// #[derive(Debug)]
+// pub struct BarAreaManager {
+//     // area: [Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>; 6],
+//     area: [BarArea; 6],
+// }
 
-    pub fn push(&mut self,bar_area:(usize,GuestPhysAddr,Arc<RwLock<dyn AreaInBar>>)){
-        self.area.push(bar_area);
-    }
-}
+// impl BarAreaManager {
+//     pub fn new() -> Self {
+//         BarAreaManager {
+//             // area: from_fn(|_| Vec::new()),
+//             area: from_fn(|_| BarArea::new(0)),
+//         }
+//     }
 
+//     pub fn set_bar_size(&mut self,bar:usize,size: usize){
+//         self.area[bar].set_size(size);
+//     }
 
-/// This structure is responsible for mmio route
-/// Capability A may share the same bar with Capability B.When a mmio is triggered, we need a router to decide which capability will handle this mmio.
-#[derive(Debug)]
-pub struct BarAreaManager {
-    // area: [Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>; 6],
-    area: [BarArea; 6],
-}
+//     pub fn insert(
+//         &mut self,
+//         bar: usize,
+//         addr: GuestPhysAddr,
+//         size: usize,
+//         area: Arc<RwLock<dyn AreaInBar>>,
+//     ) {
+//         self.area[bar].push((addr, size, area));
+//     }
 
-impl BarAreaManager {
-    pub fn new() -> Self {
-        BarAreaManager {
-            // area: from_fn(|_| Vec::new()),
-            area: from_fn(|_| BarArea::new(0)),
-        }
-    }
+//     fn find_cap(
+//         &self,
+//         bar: usize,
+//         addr: GuestPhysAddr,
+//         size: usize,
+//     ) -> Option<&(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
+//         let res = self.area[bar]
+//             .iter()
+//             .filter(|&e| e.0 <= addr && e.0 + e.1 >= addr + size)
+//             .max_by_key(|(k, _, _)| k);
+//         res
+//     }
 
-    pub fn set_bar_size(&mut self,bar:usize,size: usize){
-        self.area[bar].set_size(size);
-    }
-
-    pub fn insert(
-        &mut self,
-        bar: usize,
-        addr: GuestPhysAddr,
-        size: usize,
-        area: Arc<RwLock<dyn AreaInBar>>,
-    ) {
-        self.area[bar].push((addr, size, area));
-    }
-
-    fn find_cap(
-        &self,
-        bar: usize,
-        addr: GuestPhysAddr,
-        size: usize,
-    ) -> Option<&(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
-        let res = self.area[bar]
-            .iter()
-            .filter(|&e| e.0 <= addr && e.0 + e.1 >= addr + size)
-            .max_by_key(|(k, _, _)| k);
-        res
-    }
-
-    pub fn handle_bar_access(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
-        let target_cap = self.find_cap(bar, mmio_ac.address, mmio_ac.size);
-        if let Some((_, _, area)) = target_cap {
-            if mmio_ac.is_write {
-                return area.write().write(mmio_ac);
-            } else {
-                return area.write().read(mmio_ac);
-            }
-        }
-        warn!("we didn't find the access result!");
-        Ok(())
-    }
-}
-
-pub struct MsixCap {
-    cap_id: u8,
-    cap_next: u8,
-    message_control: u16,
-    table_bar: u8,
-    table_offset: u32,
-    pending_bar: u8,
-    pending_offset: u32,
-}
-
-impl MsixCap {
-    pub fn new(next: u8, table_size: u16) -> Self {
-        let mut res = Self {
-            cap_id: 0x11,
-            cap_next: next,
-            message_control: 0x0,
-            table_bar: 0x01,
-            table_offset: 0x0000_0000,
-            pending_bar: 0x01,
-            pending_offset: 0x0000_08000,
-        };
-        res.set_table_size(table_size);
-        res
-    }
-
-    pub fn get_table_mesg(&self) -> u32 {
-        (self.table_offset << 3) | (self.table_bar as u32)
-    }
-
-    pub fn get_pending_mesg(&self) -> u32 {
-        (self.pending_offset << 3) | (self.pending_bar as u32)
-    }
-
-    pub fn set_table_mesg(&mut self, mesg: u32) {
-        self.table_offset = mesg >> 3;
-        self.table_bar = (mesg & 0x0000_0003) as u8;
-    }
-    pub fn set_pending_mesg(&mut self, mesg: u32) {
-        self.pending_offset = mesg >> 3;
-        self.pending_bar = (mesg & 0x0000_0003) as u8;
-    }
-
-    pub fn set_table_size(&mut self, size: u16) {
-        if size > 2048 {
-            warn!("msix table size cannot larger than 2048");
-            return;
-        }
-        let mask = 0xf800;
-        self.message_control &= mask;
-        self.message_control |= size;
-    }
-}
-
-impl PciCapabilityRegion for MsixCap {
-    fn read(
-        &self,
-        offset: crate::pci::PciConfigAddress,
-        size: usize,
-    ) -> crate::error::HvResult<u32> {
-        if offset as usize % size != 0 {
-            warn!("cap read is misalign!");
-            return Ok(0);
-        }
-        if size == 1 {
-            match offset {
-                0x00 => return Ok(self.cap_id as u32),
-                0x01 => return Ok(self.cap_next as u32),
-                _ => {
-                    warn!("read u8 from unexpected area! offset:{}", offset);
-                    return Ok(0);
-                }
-            }
-        };
-        if size == 2 {
-            match offset {
-                0x00 => return Ok(self.cap_id as u32 | (self.cap_next as u32) << 8),
-                0x02 => return Ok(self.message_control as u32),
-                _ => {
-                    warn!("read u16 from unexpected area! offset:{}", offset);
-                    return Ok(0);
-                }
-            }
-        };
-        if size == 4 {
-            match offset {
-                0x00 => {
-                    return Ok((self.cap_id as u32)
-                        | (self.cap_next as u32) << 8
-                        | (self.message_control as u32) << 16)
-                }
-                0x04 => return Ok(self.get_table_mesg()),
-                0x08 => return Ok(self.get_pending_mesg()),
-                _ => {
-                    warn!("read u32 from unexpected area! offset:{}", offset);
-                    return Ok(0);
-                }
-            }
-        };
-        warn!("size is not any of 1,2,4!");
-        Ok(0)
-    }
-
-    fn write(
-        &mut self,
-        offset: crate::pci::PciConfigAddress,
-        size: usize,
-        value: u32,
-    ) -> crate::error::HvResult {
-        if size == 1 {
-            warn!("there is no writeable field with size 1!")
-        }
-        if size == 2 {
-            match offset {
-                0x02 => self.message_control = value as u16,
-                _ => {
-                    warn!("write into unexpected area! offset:{}", offset)
-                }
-            }
-            return Ok(());
-        }
-
-        if size == 4 {
-            match offset {
-                0x04 => self.set_table_mesg(value),
-                0x08 => self.set_pending_mesg(value),
-                _ => {
-                    warn!("write into unexpected area! offset:{}", offset)
-                }
-            }
-            return Ok(());
-        }
-        Ok(())
-    }
-
-    fn get_offset(&self) -> crate::pci::PciConfigAddress {
-        0
-    }
-
-    fn get_size(&self) -> usize {
-        0x0c
-    }
-
-    fn next_cap(&self) -> crate::error::HvResult<crate::pci::PciConfigAddress> {
-        Ok(self.cap_next as u64)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MsixTableEntry {
-    pub message_address: u32,
-    pub message_upper_address: u32,
-    pub msg_data: u32,
-    pub vector_control: u32,
-    pub intid: Option<usize>,
-}
-
-impl MsixTableEntry {
-    pub fn activate_irq(&self) {
-        // info!("entry:{:x?}", self);
-        match self.intid {
-            Some(x) => {
-                inject_irq(x, false);
-            }
-            None => {
-                warn!("this msix vector has not gotten a intid:{:x?}", self);
-            }
-        }
-    }
-}
-
-impl MsixTableEntry {
-    pub fn dummy() -> Self {
-        Self {
-            message_address: 0,
-            message_upper_address: 0,
-            msg_data: 0,
-            vector_control: 0,
-            intid: None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct MsixTable {
-    table: Vec<MsixTableEntry>,
-    device_id: usize,
-    event_id: Vec<(usize, usize)>,
-}
-
-impl MsixTable {
-    pub fn new(size: usize, deviceid: usize) -> Self {
-        let mut vec = Vec::new();
-        vec.resize(size, MsixTableEntry::dummy());
-        Self {
-            table: vec,
-            device_id: deviceid,
-            event_id: Vec::new(),
-        }
-    }
-
-    pub fn inject_irq(&self, vector_index: usize) {
-        self.table[vector_index].activate_irq();
-    }
-
-    pub fn get_entry(&self, vector_index: usize) -> MsixTableEntry {
-        self.table[vector_index].clone()
-    }
-
-    pub fn intercept_its(&mut self, deviceid: usize, event_id: usize, intid: usize) {
-        if deviceid == self.device_id {
-            warn!("MAPTI's deviceid != current deviceid!");
-        }
-        self.event_id.push((event_id, intid));
-    }
-
-    pub fn init_msix_intid(&mut self, index: usize) {
-        let selected_vector = &mut self.table[index];
-        for i in self.event_id.iter() {
-            if selected_vector.msg_data as usize == i.0 {
-                selected_vector.intid = Some(i.1);
-                break;
-            }
-        }
-    }
-}
-
-impl AreaInBar for MsixTable {
-    fn read(&mut self, mmio_ac: &mut MMIOAccess) -> HvResult {
-        let offset = mmio_ac.address;
-        // 16 is the size of entry
-        let index = offset / 16;
-        let offset_in_entry = offset % 16;
-        match offset_in_entry {
-            0x00 => mmio_ac.value = self.table[index].message_address as usize,
-            0x04 => mmio_ac.value = self.table[index].message_upper_address as usize,
-            0x08 => mmio_ac.value = self.table[index].msg_data as usize,
-            0x0c => mmio_ac.value = self.table[index].vector_control as usize,
-            _ => {
-                warn!("access address is misalign!");
-            }
-        }
-        Ok(())
-    }
-
-    fn write(&mut self, mmio_ac: &MMIOAccess) -> HvResult {
-        if mmio_ac.size != 4 {
-            warn!("only write with size of 4 would work correctly");
-        }
-        let offset = mmio_ac.address;
-        let index = offset / 16;
-        let offset_in_entry = offset % 16;
-        let value = mmio_ac.value;
-        match offset_in_entry {
-            0x00 => self.table[index].message_address = value as u32,
-            0x04 => self.table[index].message_upper_address = value as u32,
-            0x08 => self.table[index].msg_data = value as u32,
-            0x0c => self.table[index].vector_control = value as u32,
-            _ => {
-                warn!("access address is misalign!");
-            }
-        }
-        self.init_msix_intid(index);
-        Ok(())
-    }
-}
+//     pub fn handle_bar_access(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
+//         let target_cap = self.find_cap(bar, mmio_ac.address, mmio_ac.size);
+//         if let Some((_, _, area)) = target_cap {
+//             if mmio_ac.is_write {
+//                 return area.write().write(mmio_ac);
+//             } else {
+//                 return area.write().read(mmio_ac);
+//             }
+//         }
+//         warn!("we didn't find the access result!");
+//         Ok(())
+//     }
+// }
 
 #[derive(Debug)]
 pub struct VirtioISRCap {
@@ -1056,34 +800,45 @@ impl AreaInBar for VirtioISRCap {
 
 #[derive(Debug)]
 pub struct VirtioNotifyCap {
-    cap: VirtioPciCap,
+    // cap: VirtioPciCap,
     queue_list: Vec<(usize, Arc<RwLock<Virtqueue>>)>,
+    msix_table: Arc<RwLock<MsixTable>>,
 }
 
 impl VirtioNotifyCap {
-    pub fn new(next: u8, offset: u32, length: u32) -> Self {
-        let cap = VirtioPciCap::new(
-            VirtioCfgType::NotifyCfg(0x04),
-            next,
-            0x14,
-            0x04,
-            offset,
-            length,
-        );
+    pub fn new(msix_table: Arc<RwLock<MsixTable>>) -> Self {
+        // let cap = VirtioPciCap::new(
+        //     offset_in_config,
+        //     VirtioCfgType::NotifyCfg(0x04),
+        //     next,
+        //     0x14,
+        //     0x04,
+        //     offset,
+        //     length,
+
+        // );
         Self {
-            cap,
+            // cap,
             queue_list: Vec::new(),
+            msix_table,
         }
     }
 
-    pub fn insert_queue(&mut self, qu: Arc<RwLock<Virtqueue>>) {
+    pub fn insert_queue(
+        &mut self,
+        qu: Arc<RwLock<Virtqueue>>,
+        cap_notify_offset: u32,
+        multiplier: u32,
+    ) {
         let queue_notify_off = qu.read().queue_notify_off as u32;
-        if let VirtioCfgType::NotifyCfg(multiplier) = self.cap.cfg_type {
-            let offset = self.cap.offset + queue_notify_off * multiplier;
-            self.queue_list.push((offset as usize, qu));
-        } else {
-            error!("Notify cap has to have NotifyCfg type!");
-        }
+        let offset = cap_notify_offset + queue_notify_off * multiplier;
+        self.queue_list.push((offset as usize, qu));
+        // if let VirtioCfgType::NotifyCfg(multiplier) = self.cap.cfg_type {
+        //     let offset = self.cap.offset + queue_notify_off * multiplier;
+        //     self.queue_list.push((offset as usize, qu));
+        // } else {
+        //     error!("Notify cap has to have NotifyCfg type!");
+        // }
     }
 
     fn get_queues(&self, offset: usize) -> impl Iterator<Item = &Arc<RwLock<Virtqueue>>> {
@@ -1094,27 +849,27 @@ impl VirtioNotifyCap {
     }
 }
 
-impl PciCapabilityRegion for VirtioNotifyCap {
-    fn get_offset(&self) -> crate::pci::PciConfigAddress {
-        self.cap.get_offset()
-    }
+// impl PciCapabilityRegion for VirtioNotifyCap {
+//     fn get_offset(&self) -> crate::pci::PciConfigAddress {
+//         self.cap.get_offset()
+//     }
 
-    fn read(&self, offset: crate::pci::PciConfigAddress, size: usize) -> HvResult<u32> {
-        self.cap.read(offset, size)
-    }
+//     fn read(&self, offset: crate::pci::PciConfigAddress, size: usize) -> HvResult<u32> {
+//         self.cap.read(offset, size)
+//     }
 
-    fn write(&mut self, offset: crate::pci::PciConfigAddress, size: usize, value: u32) -> HvResult {
-        self.cap.write(offset, size, value)
-    }
+//     fn write(&mut self, offset: crate::pci::PciConfigAddress, size: usize, value: u32) -> HvResult {
+//         self.cap.write(offset, size, value)
+//     }
 
-    fn get_size(&self) -> usize {
-        self.cap.get_size()
-    }
+//     fn get_size(&self) -> usize {
+//         self.cap.get_size()
+//     }
 
-    fn next_cap(&self) -> HvResult<crate::pci::PciConfigAddress> {
-        self.cap.next_cap()
-    }
-}
+//     fn next_cap(&self) -> HvResult<crate::pci::PciConfigAddress> {
+//         self.cap.next_cap()
+//     }
+// }
 
 impl AreaInBar for VirtioNotifyCap {
     fn read(&mut self, _mmio_ac: &mut MMIOAccess) -> HvResult {
@@ -1127,69 +882,14 @@ impl AreaInBar for VirtioNotifyCap {
         for i in self.get_queues(offset) {
             // let info = VirtioPCIDataInfo::new(0, 0);
             let info = i.read().get_data_info();
+            self.msix_table
+                .write()
+                .add_pending_msix(info.get_msix_vector_idx() as usize);
             VIRTIO_PCI_BRIDGE.lock().write_data_info(info);
-            i.read().register_interrupt(info);
+            // i.read().register_interrupt(info);
             send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_DATA);
             fence(core::sync::atomic::Ordering::SeqCst);
         }
         Ok(())
-    }
-}
-
-pub struct VirtioPCIMsixManager {
-    table: BTreeMap<u64, MsixTableEntry>,
-    pending: Vec<u64>,
-}
-
-impl VirtioPCIMsixManager {
-    pub const fn new() -> Self {
-        Self {
-            table: BTreeMap::new(),
-            pending: Vec::new(),
-        }
-    }
-
-    pub fn insert(&mut self, data_info: VirtioPCIDataInfo, entry: MsixTableEntry) {
-        // info!("Msix Manager insert:{:x?}", data_info);
-        let data_req_id = data_info.get_identifier();
-        self.table.insert(data_req_id, entry);
-    }
-
-    pub fn add_pending_data_req_id(&mut self, data_req_id: u64) {
-        // info!("pending data req id add:0x{:x}", data_req_id);
-        self.pending.push(data_req_id);
-    }
-
-    pub fn activate_all_pending_irq(&mut self) {
-        let cpu_id = (this_cpu_id() as u64) << 32;
-        let mut target = Vec::new();
-        let mut i = 0;
-        while i < self.pending.len() {
-            if (self.pending[i] & 0x0000_ffff_0000_0000) == cpu_id {
-                target.push(self.pending.swap_remove(i));
-            } else {
-                i += 1;
-            }
-        }
-
-        for j in target {
-            self.activate_irq(j);
-        }
-    }
-
-    pub fn activate_irq(&mut self, data_req_id: u64) {
-        let entry = self.table.remove(&data_req_id);
-        // info!(
-        //     "irq activate!!! entry:{:x?},data_req_id:0x{:x}",
-        //     entry, data_req_id
-        // );
-        match entry {
-            Some(x) => {
-                x.activate_irq();
-            }
-            None => {
-                return;
-            }
-        }
     }
 }
