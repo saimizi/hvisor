@@ -1,1 +1,0 @@
-cargo check --target aarch64-unknown-none -Z build-std=core,alloc -Z build-std-features=compiler-builtins-mem --features 'gicv3 pl011 iommu pci ecam_pcie virtio_pci'
