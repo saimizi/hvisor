@@ -39,8 +39,10 @@ pub fn get_arch_msix_backend() -> Option<Arc<RwLock<dyn MsixBackend>>> {
         // return Some(Arc::new(RwLock::new(Gicv3MsixBackend::new())));
 
         use crate::device::irqchip::gicv3::msix_backend::get_gicv3_backend;
-        Some(get_gicv3_backend())
+        return Some(get_gicv3_backend());
     }
+    #[allow(unreachable_code)]
+    return None
 }
 
 pub struct MsixCap {
