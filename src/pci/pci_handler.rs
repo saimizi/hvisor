@@ -407,10 +407,10 @@ fn handle_endpoint_access(
                                 /* after update gpm, need to flush iommu table
                                  * in x86_64
                                  */
-                                #[cfg(target_arch = "x86_64")]
+                                #[cfg(all(target_arch = "x86_64", feature = "intel_vtd"))]
                                 {
                                     let vbdf = dev.get_vbdf();
-                                    crate::arch::iommu::flush(
+                                    crate::device::iommu::flush(
                                         this_zone_id(),
                                         vbdf.bus,
                                         (vbdf.device << 3) + vbdf.function,
@@ -537,10 +537,10 @@ fn handle_endpoint_access(
                             /* after update gpm, need to flush iommu table
                              * in x86_64
                              */
-                            #[cfg(target_arch = "x86_64")]
+                            #[cfg(all(target_arch = "x86_64", feature = "intel_vtd"))]
                             {
                                 let vbdf = dev.get_vbdf();
-                                crate::arch::iommu::flush(
+                                crate::device::iommu::flush(
                                     this_zone_id(),
                                     vbdf.bus,
                                     (vbdf.device << 3) + vbdf.function,

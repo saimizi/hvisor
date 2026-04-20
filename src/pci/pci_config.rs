@@ -35,7 +35,7 @@ use alloc::vec::Vec;
     all(feature = "iommu", target_arch = "riscv64"),
     target_arch = "x86_64"
 ))]
-use crate::arch::iommu::iommu_add_device;
+use crate::device::iommu::iommu_add_device_with_root_pt_addr;
 
 #[cfg(feature = "ecam_pcie")]
 use crate::pci::vpci_dev::{get_handler, VpciDevType};
@@ -341,9 +341,13 @@ impl Zone {
                         | (dev_config.device as usize) << 3
                         | dev_config.function as usize;
                     #[cfg(feature = "share_s2pt")]
-                    iommu_add_device(_zone_id, device_id as _, inner.gpm().root_paddr());
+                    iommu_add_device_with_root_pt_addr(
+                        _zone_id,
+                        device_id as _,
+                        inner.gpm().root_paddr(),
+                    );
                     #[cfg(not(feature = "share_s2pt"))]
-                    iommu_add_device(_zone_id, device_id as _, iommu_pt_addr);
+                    iommu_add_device_with_root_pt_addr(_zone_id, device_id as _, iommu_pt_addr);
                 }
 
                 // Insert device into vpci_bus with calculated vbdf
@@ -372,7 +376,7 @@ impl Zone {
                         }
                     }
                 } else {
-                    // warn!("can not find dev {:#?}", bdf);
+                    warn!("can not find dev {:#?} in GLOBAL_PCIE_LIST (not detected during enumeration)", bdf);
                     #[cfg(feature = "ecam_pcie")]
                     {
                         let dev_type = dev_config.dev_type;

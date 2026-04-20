@@ -20,7 +20,7 @@
 // TODO:
 // - [ ] Remove iommu from arch to device
 // - [ ] Add a abstract interface for all-architecture IOMMU
-// - [ ] Support MSI remapping
+// - [x] Support MSI remapping
 // - [ ] Complete command queue and fault queue
 // - [ ] Support vIOMMU
 // - [ ] Increase more fault tolerance
@@ -248,8 +248,9 @@ pub fn iommu_add_device(vm_id: usize, device_id: usize, root_pt: usize) {
     info!("RISC-V: iommu_add_device do nothing now");
 }
 
-/// Remove a device from IOMMU
-pub fn iommu_remove_device(vm_id: usize, device_id: usize) {
+/// Remove a device from IOMMU (reserved for future hot-unplug paths).
+#[allow(dead_code)]
+fn iommu_remove_device(vm_id: usize, device_id: usize) {
     #[cfg(feature = "iommu")]
     {
         info!(
