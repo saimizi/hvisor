@@ -42,7 +42,6 @@ pub const BOARD_PHYSMEM_LIST: &[(u64, u64, MemoryType)] = &[
  // (       start,           end,                type)
     (         0x0,    0x40000000,  MemoryType::Device),
     (  0x40000000,   0x100000000,  MemoryType::Normal),
-    // (0x4010000000,  0x4020000000,  MemoryType::Device),
 ];
 
 pub const ROOT_ZONE_DTB_ADDR: u64 = 0xa0000000;
@@ -111,10 +110,8 @@ pub const ROOT_ZONE_MEMORY_REGIONS: [HvConfigMemoryRegion; 8] = [
 ];
 
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
-pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG: usize = 32 + 0x21;
-pub const IRQ_WAKEUP_VIRTIO_PCI_DATA: usize = 32 + 0x22;
 pub const ROOT_ZONE_IRQS_BITMAP: &[BitmapWord] = &get_irqs_bitmap(&[
-    35, 36, 37, 38, 45, 52, 55, 56, 57, 59, 64, 65, 66, 67, 75, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+    35, 36, 37, 38, 45, 52, 55, 56, 57, 59, 64, 67, 75, 96, 97, 98, 99, 100, 101, 102, 103, 104,
     105, 135, 150, 151, 152, 162,
 ]);
 
@@ -129,22 +126,5 @@ pub const ROOT_ARCH_ZONE_CONFIG: HvArchZoneConfig = HvArchZoneConfig {
         gits_size: 0,
     }),
 };
-
-// pub const ROOT_PCI_CONFIG: [HvPciConfig; 1] = [HvPciConfig {
-//     ecam_base: 0x4010000000,
-//     ecam_size: 0x10000000,
-//     io_base: 0x3eff0000,
-//     io_size: 0x10000,
-//     pci_io_base: 0x0,
-//     mem32_base: 0x10000000,
-//     mem32_size: 0x2eff0000,
-//     pci_mem32_base: 0x10000000,
-//     mem64_base: 0x8000000000,
-//     mem64_size: 0x8000000000,
-//     pci_mem64_base: 0x8000000000,
-//     bus_range_begin: 0,
-//     bus_range_end: 0xff,
-//     domain: 0x0,
-// }];
 
 pub const ROOT_ZONE_IVC_CONFIG: [HvIvcConfig; 0] = [];

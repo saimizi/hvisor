@@ -21,10 +21,12 @@ use crate::{
     },
     cpu_data::this_cpu_data,
     device::{irqchip::inject_irq, virtio_trampoline::handle_virtio_irq},
+    platform::IRQ_WAKEUP_VIRTIO_DEVICE,
+};
+#[cfg(feature = "virtio_pci")]
+use crate::{
     pci::msix::activate_msix,
-    platform::{
-        IRQ_WAKEUP_VIRTIO_DEVICE, IRQ_WAKEUP_VIRTIO_PCI_CONFIG, IRQ_WAKEUP_VIRTIO_PCI_DATA,
-    },
+    platform::{IRQ_WAKEUP_VIRTIO_PCI_CONFIG, IRQ_WAKEUP_VIRTIO_PCI_DATA},
 };
 use alloc::{collections::VecDeque, vec::Vec};
 use spin::Mutex;
@@ -109,14 +111,17 @@ pub fn check_events() -> bool {
             inject_irq(IRQ_WAKEUP_VIRTIO_DEVICE, false);
             true
         }
+        #[cfg(feature = "virtio_pci")]
         Some(IPI_EVENT_VIRTIO_PCI_CONFIG) => {
             inject_irq(IRQ_WAKEUP_VIRTIO_PCI_CONFIG, false);
             true
         }
+        #[cfg(feature = "virtio_pci")]
         Some(IPI_EVENT_VIRTIO_PCI_DATA) => {
             inject_irq(IRQ_WAKEUP_VIRTIO_PCI_DATA, false);
             true
         }
+        #[cfg(feature = "virtio_pci")]
         Some(IPI_EVENT_VIRTIO_PCI_DONE) => {
             // Virtio PCI notice
             // unsafe {

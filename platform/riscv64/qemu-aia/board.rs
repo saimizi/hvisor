@@ -63,8 +63,6 @@ pub const ROOT_ZONE_MEMORY_REGIONS: &[HvConfigMemoryRegion] = &[
 ];
 
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 0x20;
-pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG: usize = 0x23;
-pub const IRQ_WAKEUP_VIRTIO_PCI_DATA: usize = 0x24;
 pub const HW_IRQS: &[u32] = &[7, 10, 33, 34];
 pub const ROOT_ZONE_IRQS_BITMAP: &[BitmapWord] = &get_irqs_bitmap(&[10, 33]); // ARCH= riscv .It doesn't matter temporarily.
 

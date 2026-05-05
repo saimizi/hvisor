@@ -65,8 +65,6 @@ pub const ROOT_ZONE_CPUS: u64 = (1 << 2) - 1;
 pub const ROOT_ZONE_NAME: &str = "root-linux";
 
 pub const IRQ_WAKEUP_VIRTIO_DEVICE: usize = 32 + 0x20;
-pub const IRQ_WAKEUP_VIRTIO_PCI_CONFIG: usize = 32 + 0x21;
-pub const IRQ_WAKEUP_VIRTIO_PCI_DATA:usize = 32 + 0x22;
 pub const ROOT_ZONE_MEMORY_REGIONS: &[HvConfigMemoryRegion] = &[
     // /proc/iomem System RAM
     HvConfigMemoryRegion {

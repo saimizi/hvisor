@@ -363,7 +363,7 @@
 	};
 
 	hvisor_virtio_pci_data {
-		compatiable = "hvisor";
+		compatible = "hvisor";
 		interrupt-parent = <0x01>;
 		interrupts = <0x00 0x22 0x01>;
 	};
