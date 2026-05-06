@@ -51,7 +51,7 @@ pub fn get_current_msix_backend() -> Option<Arc<RwLock<Gicv3MsixBackend>>> {
 }
 
 pub fn msix_intercept_its(device_id: MsixDeviceID, event_id: MsixEventID, irq_id: MsixIrqID) {
-    let device_id = device_id >> 32;
+    // let device_id = device_id >> 32;
     match get_current_msix_backend().clone() {
         Some(x) => {
             x.write().intercept_its(device_id, event_id, irq_id);
@@ -71,10 +71,10 @@ pub struct Gicv3MsixBackend {
 
 impl MsixBackend for Gicv3MsixBackend {
     fn activate_irq(&self, device_id: usize, vector: &MsixTableEntry) {
-        info!(
-            "irq_info_list:{:x?},device_id:0x{:x},vector:{:x?}",
-            self.irq_info_list, device_id, vector
-        );
+        // info!(
+        //     "irq_info_list:{:x?},device_id:0x{:x},vector:{:x?}",
+        //     self.irq_info_list, device_id, vector
+        // );
         // inject_irq(0x2001, false);
         for i in self.irq_info_list.iter() {
             if i.0 == device_id as u64 && i.1 == vector.get_msg_data() as u64 {

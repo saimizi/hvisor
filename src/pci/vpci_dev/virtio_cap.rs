@@ -209,7 +209,6 @@ impl PciCapabilityRegion for VirtioPciCap {
         Ok(())
     }
 
-    // This is a dummy implement.It's not that the offset of this capability is 0
     fn get_offset(&self) -> crate::pci::PciConfigAddress {
         self.offset_in_config as u64
     }
@@ -296,8 +295,8 @@ impl Virtqueue {
     pub fn new(msix: Arc<RwLock<MsixTable>>, queue_id: u16) -> Self {
         Self {
             queue_size: 256,
-            queue_msix_vector: 1,
-            queue_enable: 1,
+            queue_msix_vector: u16::MAX,
+            queue_enable: 0,
             queue_notify_off: 0,
             queue_desc: 0,
             queue_driver: 0,
@@ -328,20 +327,6 @@ impl Virtqueue {
             .read()
             .inject_irq(self.queue_msix_vector as usize);
     }
-
-    // pub fn get_msix_entry(&self) -> MsixTableEntry {
-    //     self.msix_table
-    //         .read()
-    //         .get_entry(self.queue_msix_vector as usize)
-    // }
-
-    // pub fn register_interrupt(&self, data_info: VirtioPCIDataInfo) {
-    //     // unsafe {
-    //     //     VIRTIO_MSIX_MANAGER
-    //     //         .write()
-    //     //         .insert(data_info, self.get_msix_entry());
-    //     // }
-    // }
 
     pub fn set_desc_area(&mut self) {
         let base = self.queue_desc as usize;
@@ -385,29 +370,6 @@ impl Virtqueue {
         }
     }
 
-    // pub fn consume_avail_with_zero(&self) -> Option<()> {
-    //     let avail_area = self.avail_area?;
-    //     let used_area = self.used_area?;
-    //     let desc_area = self.desc_table?;
-
-    //     let avail_idx = avail_area.get_idx();
-    //     let used_idx = used_area.get_idx();
-    //     let queue_size = self.queue_size;
-    //     for i in used_idx..avail_idx {
-    //         let idx = i % queue_size;
-    //         let avail_ring_content = avail_area.get_ring_content(idx as usize);
-    //         let desc = desc_area.get(avail_ring_content as usize);
-    //         unsafe {
-    //             write_bytes(desc.addr as *mut u8, 'Z' as u8, desc.len as usize);
-    //         }
-    //         let used_item = VirtqUsedElem::new(avail_ring_content as u32, desc.len);
-    //         used_area.write_ring(idx as usize, used_item);
-    //     }
-
-    //     used_area.set_idx(avail_idx);
-    //     return Some(());
-    // }
-
     pub fn get_area_info(&self) -> VirtqueueAreaInfo {
         VirtqueueAreaInfo::new(self.queue_desc, self.queue_driver, self.queue_device)
     }
@@ -441,7 +403,7 @@ impl VirtioPciCommonCfg {
             // device_feature:(0,1),
             driver_feature_select: 0,
             driver_feature: (0, 0),
-            config_msix_vector: 0x0,
+            config_msix_vector: u16::MAX,
             num_queue: 0,
             device_status: 0,
             config_generation: 0,
@@ -598,10 +560,6 @@ impl AreaInBar for VirtioPciCommonCfg {
     fn read(&mut self, mmio_ac: &mut MMIOAccess) -> HvResult {
         let addr = mmio_ac.address;
         let size = mmio_ac.size;
-        // info!(
-        //     "----read in common cfg !!! addr:{:x},size:{:x}----",
-        //     addr, size
-        // );
         if size == 1 {
             match addr {
                 0x14 => {
@@ -633,11 +591,11 @@ impl AreaInBar for VirtioPciCommonCfg {
                     mmio_ac.value = self.queue_list[self.queue_select].read().queue_size as usize;
                 }
                 0x1a => {
-                    mmio_ac.value = self.queue_list[self.queue_select].read().queue_enable as usize;
+                    mmio_ac.value =
+                        self.queue_list[self.queue_select].read().queue_msix_vector as usize;
                 }
                 0x1c => {
-                    mmio_ac.value =
-                        self.queue_list[self.queue_select].read().queue_notify_off as usize;
+                    mmio_ac.value = self.queue_list[self.queue_select].read().queue_enable as usize;
                 }
                 0x1e => {
                     mmio_ac.value =
@@ -680,88 +638,6 @@ impl AreaInBar for VirtioPciCommonCfg {
     }
 }
 
-// #[derive(Debug)]
-// pub struct BarArea{
-//     size:usize,
-//     area:Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>,
-// }
-
-// impl BarArea{
-//     pub fn new(size:usize)->Self{
-//         Self { size, area: Vec::new() }
-//     }
-
-//     pub fn iter(
-//         &self,
-//     ) -> core::slice::Iter<'_, (GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
-//         self.area.iter()
-//     }
-
-//     pub fn set_size(&mut self,size:usize){
-//         self.size = size;
-//     }
-
-//     pub fn push(&mut self,bar_area:(usize,GuestPhysAddr,Arc<RwLock<dyn AreaInBar>>)){
-//         self.area.push(bar_area);
-//     }
-// }
-
-// /// This structure is responsible for mmio route
-// /// Capability A may share the same bar with Capability B.When a mmio is triggered, we need a router to decide which capability will handle this mmio.
-// #[derive(Debug)]
-// pub struct BarAreaManager {
-//     // area: [Vec<(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)>; 6],
-//     area: [BarArea; 6],
-// }
-
-// impl BarAreaManager {
-//     pub fn new() -> Self {
-//         BarAreaManager {
-//             // area: from_fn(|_| Vec::new()),
-//             area: from_fn(|_| BarArea::new(0)),
-//         }
-//     }
-
-//     pub fn set_bar_size(&mut self,bar:usize,size: usize){
-//         self.area[bar].set_size(size);
-//     }
-
-//     pub fn insert(
-//         &mut self,
-//         bar: usize,
-//         addr: GuestPhysAddr,
-//         size: usize,
-//         area: Arc<RwLock<dyn AreaInBar>>,
-//     ) {
-//         self.area[bar].push((addr, size, area));
-//     }
-
-//     fn find_cap(
-//         &self,
-//         bar: usize,
-//         addr: GuestPhysAddr,
-//         size: usize,
-//     ) -> Option<&(GuestPhysAddr, usize, Arc<RwLock<dyn AreaInBar>>)> {
-//         let res = self.area[bar]
-//             .iter()
-//             .filter(|&e| e.0 <= addr && e.0 + e.1 >= addr + size)
-//             .max_by_key(|(k, _, _)| k);
-//         res
-//     }
-
-//     pub fn handle_bar_access(&self, bar: usize, mmio_ac: &mut MMIOAccess) -> HvResult {
-//         let target_cap = self.find_cap(bar, mmio_ac.address, mmio_ac.size);
-//         if let Some((_, _, area)) = target_cap {
-//             if mmio_ac.is_write {
-//                 return area.write().write(mmio_ac);
-//             } else {
-//                 return area.write().read(mmio_ac);
-//             }
-//         }
-//         warn!("we didn't find the access result!");
-//         Ok(())
-//     }
-// }
 
 #[derive(Debug)]
 pub struct VirtioISRCap {
@@ -784,6 +660,7 @@ impl AreaInBar for VirtioISRCap {
         match offset {
             0x00 => {
                 mmio_ac.value = self.isr as usize;
+                self.isr = 0;
             }
             _ => {
                 warn!("illegal isr address");
@@ -807,18 +684,7 @@ pub struct VirtioNotifyCap {
 
 impl VirtioNotifyCap {
     pub fn new(msix_table: Arc<RwLock<MsixTable>>) -> Self {
-        // let cap = VirtioPciCap::new(
-        //     offset_in_config,
-        //     VirtioCfgType::NotifyCfg(0x04),
-        //     next,
-        //     0x14,
-        //     0x04,
-        //     offset,
-        //     length,
-
-        // );
         Self {
-            // cap,
             queue_list: Vec::new(),
             msix_table,
         }
@@ -849,28 +715,6 @@ impl VirtioNotifyCap {
     }
 }
 
-// impl PciCapabilityRegion for VirtioNotifyCap {
-//     fn get_offset(&self) -> crate::pci::PciConfigAddress {
-//         self.cap.get_offset()
-//     }
-
-//     fn read(&self, offset: crate::pci::PciConfigAddress, size: usize) -> HvResult<u32> {
-//         self.cap.read(offset, size)
-//     }
-
-//     fn write(&mut self, offset: crate::pci::PciConfigAddress, size: usize, value: u32) -> HvResult {
-//         self.cap.write(offset, size, value)
-//     }
-
-//     fn get_size(&self) -> usize {
-//         self.cap.get_size()
-//     }
-
-//     fn next_cap(&self) -> HvResult<crate::pci::PciConfigAddress> {
-//         self.cap.next_cap()
-//     }
-// }
-
 impl AreaInBar for VirtioNotifyCap {
     fn read(&mut self, _mmio_ac: &mut MMIOAccess) -> HvResult {
         warn!("Notify read has not been implemented yet");
@@ -880,13 +724,11 @@ impl AreaInBar for VirtioNotifyCap {
     fn write(&mut self, mmio_ac: &MMIOAccess) -> HvResult {
         let offset = mmio_ac.address;
         for i in self.get_queues(offset) {
-            // let info = VirtioPCIDataInfo::new(0, 0);
             let info = i.read().get_data_info();
             self.msix_table
                 .write()
                 .add_pending_msix(info.get_msix_vector_idx() as usize);
             VIRTIO_PCI_BRIDGE.lock().write_data_info(info);
-            // i.read().register_interrupt(info);
             send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_DATA);
             fence(core::sync::atomic::Ordering::SeqCst);
         }

@@ -76,7 +76,6 @@ fn main() {
     let project_toml_root = env::var("CARGO_MANIFEST_DIR").unwrap();
     // read the .config file at the project root
     let config_path = format!("{}/.config", project_toml_root);
-    // println!("cargo:warning=hello from build.rs{}", config_path);
     let mut build_env = parse_build_env(&config_path);
 
     if !build_env.bid.is_empty() {

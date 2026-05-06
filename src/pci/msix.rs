@@ -28,10 +28,6 @@ use crate::{
     pci::pci_struct::{AreaInBar, PciCapabilityRegion},
 };
 
-// pub static mut MAPTI_INTERCEPTOR: Option<Arc<RwLock<MsixTable>>> = None;
-// pub static mut VIRTIO_MSIX_MANAGER: Lazy<Arc<RwLock<VirtioPCIMsixManager>>> =
-//     Lazy::new(|| Arc::new(RwLock::new(VirtioPCIMsixManager::new())));
-
 pub fn activate_msix() {
     // let data_info = VirtioPCIDataInfo::from_u64(data_req_id);
     // let dev_id = data_info.get_dev_id();
@@ -47,17 +43,14 @@ pub fn activate_msix() {
     }
 }
 
+#[allow(unreachable_code)]
 pub fn get_arch_msix_backend() -> Option<Arc<RwLock<dyn MsixBackend>>> {
     #[cfg(all(target_arch = "aarch64", feature = "gicv3"))]
     {
-        // use crate::device::irqchip::gicv3::msix_backend::Gicv3MsixBackend;
-
-        // return Some(Arc::new(RwLock::new(Gicv3MsixBackend::new())));
-
         use crate::device::irqchip::gicv3::msix_backend::get_gicv3_backend;
         return Some(get_gicv3_backend());
     }
-    #[allow(unreachable_code)]
+    
     return None;
 }
 
@@ -97,7 +90,7 @@ impl MsixCap {
     }
 
     pub fn get_table_size(&self) -> usize {
-        (self.message_control & 0x07ff) as usize
+        ((self.message_control & 0x07ff) as usize) + 1
     }
 
     pub fn get_table_mesg(&self) -> u32 {
@@ -118,13 +111,13 @@ impl MsixCap {
     }
 
     pub fn set_table_size(&mut self, size: u16) {
-        if size > 2048 {
-            warn!("msix table size cannot larger than 2048");
+        if size == 0 || size > 2048 {
+            warn!("msix table size must be in 1..=2048");
             return;
         }
         let mask = 0xf800;
         self.message_control &= mask;
-        self.message_control |= size;
+        self.message_control |= size - 1;
     }
 }
 
@@ -231,8 +224,7 @@ impl PciCapabilityRegion for MsixCap {
 
     fn bar_addr_range(&self) -> Option<core::ops::Range<usize>> {
         let table_offset = self.table_offset as usize;
-        // info!("msix cap range:0x{:x}--0x{:x}",table_offset,table_offset+self.get_table_size());
-        Some(table_offset..table_offset + self.get_table_size() * 12)
+        Some(table_offset..table_offset + self.get_table_size() * 16)
     }
 }
 
@@ -302,7 +294,10 @@ impl MsixTable {
     }
 
     pub fn inject_irq(&self, vector_index: usize) {
-        // self.table[vector_index].activate_irq();
+        if vector_index >= self.table.len() {
+            warn!("msix vector index {} out of range", vector_index);
+            return;
+        }
         if let Some(backend) = &self.msix_backend {
             backend
                 .read()
@@ -367,6 +362,10 @@ impl AreaInBar for MsixTable {
         // 16 is the size of entry
         let index = offset / 16;
         let offset_in_entry = offset % 16;
+        if index >= self.table.len() {
+            warn!("msix table read index {} out of range", index);
+            return Ok(());
+        }
         match offset_in_entry {
             0x00 => mmio_ac.value = self.table[index].message_address as usize,
             0x04 => mmio_ac.value = self.table[index].message_upper_address as usize,
@@ -386,6 +385,10 @@ impl AreaInBar for MsixTable {
         let offset = mmio_ac.address;
         let index = offset / 16;
         let offset_in_entry = offset % 16;
+        if index >= self.table.len() {
+            warn!("msix table write index {} out of range", index);
+            return Ok(());
+        }
         let value = mmio_ac.value;
         match offset_in_entry {
             0x00 => self.table[index].message_address = value as u32,

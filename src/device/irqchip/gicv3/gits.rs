@@ -328,7 +328,7 @@ impl Cmdq {
             }
             ITS_CMD_MAPTI => {
                 new_cmd[0] = cmd0_tmp;
-                let id = value[0] & 0xffffffff00000000;
+                let id = (value[0] & 0xffffffff00000000) >> 32;
                 let event = value[1] & 0xffffffff;
                 let intid = value[1] >> 32;
                 let vicid = value[2] & 0xffff;

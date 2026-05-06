@@ -61,16 +61,16 @@ fn handle_virtio_pci_request(
     value: usize,
     is_write: bool,
 ) -> HvResult<Option<usize>> {
-    info!(
-        "offset:0x{:x},size:0x{:x},value:0x{:x},is_write:{}",
-        offset, size, value, is_write
-    );
+    // info!(
+    //     "offset:0x{:x},size:0x{:x},value:0x{:x},is_write:{}",
+    //     offset, size, value, is_write
+    // );
     let res = if is_write {
         handle_virtio_pci_write(dev, offset, size, value)
     } else {
         handle_virtio_pci_read(dev, offset, size)
     };
-    info!("result:{:x?}", res);
+    // info!("result:{:x?}", res);
     res
 }
 
@@ -130,90 +130,90 @@ fn handle_virtio_pci_write(
     }
 }
 
-fn handle_virt_pci_request(
-    dev: ArcRwLockVirtualPciConfigSpace,
-    offset: PciConfigAddress,
-    size: usize,
-    value: usize,
-    is_write: bool,
-    dev_type: VpciDevType,
-) -> HvResult<Option<usize>> {
-    /*
-     * The capability is located in the upper part of the configuration space,
-     * and there is no other message. So the max cap_offset which is less than
-     * offset is the correct cap we need.
-     */
-    let result = dev.with_cap(|capabilities| {
-        if let Some((cap_offset, cap)) = capabilities
-            .cap_in_config_ref()
-            .range(..=offset)
-            .next_back()
-        {
-            let end = *cap_offset + cap.get_size() as u64;
-            if offset >= end {
-                return hv_result_err!(
-                    ERANGE,
-                    format!(
-                        "virt pci cap rw offset {:#x} out of range [{:#x}..{:#x})",
-                        offset, *cap_offset, end
-                    )
-                );
-            }
-            let relative_offset = offset - *cap_offset;
+// fn handle_virt_pci_request(
+//     dev: ArcRwLockVirtualPciConfigSpace,
+//     offset: PciConfigAddress,
+//     size: usize,
+//     value: usize,
+//     is_write: bool,
+//     dev_type: VpciDevType,
+// ) -> HvResult<Option<usize>> {
+//     /*
+//      * The capability is located in the upper part of the configuration space,
+//      * and there is no other message. So the max cap_offset which is less than
+//      * offset is the correct cap we need.
+//      */
+//     let result = dev.with_cap(|capabilities| {
+//         if let Some((cap_offset, cap)) = capabilities
+//             .cap_in_config_ref()
+//             .range(..=offset)
+//             .next_back()
+//         {
+//             let end = *cap_offset + cap.get_size() as u64;
+//             if offset >= end {
+//                 return hv_result_err!(
+//                     ERANGE,
+//                     format!(
+//                         "virt pci cap rw offset {:#x} out of range [{:#x}..{:#x})",
+//                         offset, *cap_offset, end
+//                     )
+//                 );
+//             }
+//             let relative_offset = offset - *cap_offset;
 
-            if is_write {
-                cap.with_region_mut(|region| {
-                    match region.write(relative_offset, size, value as u32) {
-                        Ok(()) => Ok(0),
-                        Err(e) => {
-                            warn!(
-                                "Failed to write capability at offset 0x{:x}: {:?}",
-                                offset, e
-                            );
-                            Err(e)
-                        }
-                    }
-                })
-            } else {
-                cap.with_region(|region| match region.read(relative_offset, size) {
-                    Ok(val) => Ok(val),
-                    Err(e) => {
-                        warn!(
-                            "Failed to read capability at offset 0x{:x}: {:?}",
-                            offset, e
-                        );
-                        Err(e)
-                    }
-                })
-            }
-        } else {
-            hv_result_err!(ENOENT)
-        }
-    });
+//             if is_write {
+//                 cap.with_region_mut(|region| {
+//                     match region.write(relative_offset, size, value as u32) {
+//                         Ok(()) => Ok(0),
+//                         Err(e) => {
+//                             warn!(
+//                                 "Failed to write capability at offset 0x{:x}: {:?}",
+//                                 offset, e
+//                             );
+//                             Err(e)
+//                         }
+//                     }
+//                 })
+//             } else {
+//                 cap.with_region(|region| match region.read(relative_offset, size) {
+//                     Ok(val) => Ok(val),
+//                     Err(e) => {
+//                         warn!(
+//                             "Failed to read capability at offset 0x{:x}: {:?}",
+//                             offset, e
+//                         );
+//                         Err(e)
+//                     }
+//                 })
+//             }
+//         } else {
+//             hv_result_err!(ENOENT)
+//         }
+//     });
 
-    match result {
-        Ok(val) => {
-            if !is_write {
-                Ok(Some(val as usize))
-            } else {
-                Ok(None)
-            }
-        }
-        Err(_) => {
-            if is_write {
-                super::vpci_dev::vpci_dev_write_cfg(dev_type, dev.clone(), offset, size, value)?;
-                Ok(None)
-            } else {
-                Ok(Some(super::vpci_dev::vpci_dev_read_cfg(
-                    dev_type,
-                    dev.clone(),
-                    offset,
-                    size,
-                )?))
-            }
-        }
-    }
-}
+//     match result {
+//         Ok(val) => {
+//             if !is_write {
+//                 Ok(Some(val as usize))
+//             } else {
+//                 Ok(None)
+//             }
+//         }
+//         Err(_) => {
+//             if is_write {
+//                 super::vpci_dev::vpci_dev_write_cfg(dev_type, dev.clone(), offset, size, value)?;
+//                 Ok(None)
+//             } else {
+//                 Ok(Some(super::vpci_dev::vpci_dev_read_cfg(
+//                     dev_type,
+//                     dev.clone(),
+//                     offset,
+//                     size,
+//                 )?))
+//             }
+//         }
+//     }
+// }
 
 fn handle_endpoint_access(
     dev: ArcRwLockVirtualPciConfigSpace,
