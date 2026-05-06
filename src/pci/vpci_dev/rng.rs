@@ -17,7 +17,7 @@
 use alloc::sync::Arc;
 use spin::rwlock::RwLock;
 
-use super::{VpciDeviceHandler};
+use super::VpciDeviceHandler;
 use crate::cpu_data::this_zone;
 use crate::memory::MMIOAccess;
 use crate::pci::msix::{MsixCap, MsixTable};
@@ -29,8 +29,6 @@ use crate::pci::vpci_dev::virtio_cap::{
     VirtioISRCap, VirtioNotifyCap, VirtioPciCap, VirtioPciCommonCfg, Virtqueue,
 };
 use crate::{error::HvResult, pci::pci_struct::VirtualPciConfigSpace};
-
-
 
 pub struct VirtioRngHandler;
 

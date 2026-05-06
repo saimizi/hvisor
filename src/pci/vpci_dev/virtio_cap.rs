@@ -638,7 +638,6 @@ impl AreaInBar for VirtioPciCommonCfg {
     }
 }
 
-
 #[derive(Debug)]
 pub struct VirtioISRCap {
     isr: u32,

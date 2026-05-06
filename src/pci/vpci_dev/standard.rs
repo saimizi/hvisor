@@ -154,20 +154,21 @@ impl VpciDeviceHandler for StandardHandler {
             dev.get_bdf().requester_id() as usize,
             dev.get_msix_backend(),
         )));
-        let msix_cap = arc_rwlock!(MsixCap::new(msix_cap_offset, 0x00, 0x10, msix_table.clone()));
+        let msix_cap = arc_rwlock!(MsixCap::new(
+            msix_cap_offset,
+            0x00,
+            0x10,
+            msix_table.clone()
+        ));
         let msix = PciCapability::new_cap(CapabilityType::MsiX, msix_cap);
         // let mut msi_cap = ::new(msi_cap_offset);
         // msi_cap.set_next_cap_pointer(0x00);
         dev.with_access_mut(|access| {
-            access.set_bits(
-                (msix_cap_offset as usize)..(msix_cap_offset as usize + 0x10) as usize,
-            );
+            access.set_bits((msix_cap_offset as usize)..(msix_cap_offset as usize + 0x10) as usize);
         });
 
         dev.with_cap_mut(|capabilities| {
-            capabilities.insert_cap(
-                msix
-            );
+            capabilities.insert_cap(msix);
         });
 
         dev.with_access_mut(|access| {

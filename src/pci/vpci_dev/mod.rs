@@ -16,9 +16,7 @@
 
 use crate::error::HvResult;
 use crate::pci::msix::MsixBackend;
-use crate::pci::pci_struct::{
-    ArcRwLockVirtualPciConfigSpace, Bdf, VirtualPciConfigSpace,
-};
+use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, Bdf, VirtualPciConfigSpace};
 use crate::pci::PciConfigAddress;
 
 use alloc::sync::Arc;
@@ -72,7 +70,7 @@ pub trait VpciDeviceHandler: Sync + Send {
         _dev: ArcRwLockVirtualPciConfigSpace,
         _offset: PciConfigAddress,
         _size: usize,
-    ) -> HvResult<PciConfigAccessStatus>{
+    ) -> HvResult<PciConfigAccessStatus> {
         return Ok(PciConfigAccessStatus::Default);
     }
     fn write_cfg(
@@ -81,7 +79,7 @@ pub trait VpciDeviceHandler: Sync + Send {
         _offset: PciConfigAddress,
         _size: usize,
         _value: usize,
-    ) -> HvResult<PciConfigAccessStatus>{
+    ) -> HvResult<PciConfigAccessStatus> {
         return Ok(PciConfigAccessStatus::Default);
     }
     fn vdev_init(&self, dev: VirtualPciConfigSpace) -> VirtualPciConfigSpace;

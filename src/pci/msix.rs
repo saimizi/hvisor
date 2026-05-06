@@ -50,7 +50,7 @@ pub fn get_arch_msix_backend() -> Option<Arc<RwLock<dyn MsixBackend>>> {
         use crate::device::irqchip::gicv3::msix_backend::get_gicv3_backend;
         return Some(get_gicv3_backend());
     }
-    
+
     return None;
 }
 
