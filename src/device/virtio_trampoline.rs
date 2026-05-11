@@ -33,6 +33,7 @@ use crate::{
 use alloc::collections::BTreeMap;
 use core::{
     fmt::{Debug, Formatter, Result},
+    mem::size_of,
     sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering},
 };
 use spin::{Mutex, MutexGuard};
@@ -331,14 +332,17 @@ pub struct VirtqueueAreaInfo {
     pub desc_area: u64,
     pub avail_area: u64,
     pub used_area: u64,
+
+    pub queue_size:u64,
 }
 
 impl VirtqueueAreaInfo {
-    pub fn new(desc: u64, avail: u64, used: u64) -> Self {
+    pub fn new(desc: u64, avail: u64, used: u64,queue_size:u64) -> Self {
         Self {
             desc_area: desc,
             avail_area: avail,
             used_area: used,
+            queue_size
         }
     }
 
@@ -347,6 +351,7 @@ impl VirtqueueAreaInfo {
             desc_area: 0,
             avail_area: 0,
             used_area: 0,
+            queue_size: 0,
         }
     }
 }
@@ -457,11 +462,12 @@ impl VirtioPCIBridge {
     }
 
     pub fn init(&mut self, addr: usize) {
-        let size_of_config_info = 2 * 4 + 8 + 24 * MAX_VQ;
+        let size_of_config_info = size_of::<VirtioPCIConfigInfo>();
+        let size_of_data_info = size_of::<VirtioPCIDataInfo>();
         self.config.set_ptr(addr);
         self.config.set_len(size_of_config_info);
         self.data.set_ptr(addr + size_of_config_info);
-        self.data.set_len(2 * 4);
+        self.data.set_len(size_of_data_info);
     }
 
     pub fn write_dev_info(&mut self, config: VirtioPCIConfigInfo) {

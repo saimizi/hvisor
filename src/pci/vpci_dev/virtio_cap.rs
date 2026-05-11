@@ -371,7 +371,7 @@ impl Virtqueue {
     }
 
     pub fn get_area_info(&self) -> VirtqueueAreaInfo {
-        VirtqueueAreaInfo::new(self.queue_desc, self.queue_driver, self.queue_device)
+        VirtqueueAreaInfo::new(self.queue_desc, self.queue_driver, self.queue_device,self.queue_size as u64)
     }
 
     pub fn get_data_info(&self) -> VirtioPCIDataInfo {

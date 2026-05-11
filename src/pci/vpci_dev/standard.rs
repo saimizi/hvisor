@@ -127,7 +127,6 @@ impl VpciDeviceHandler for StandardHandler {
 
     fn vdev_init(&self, mut dev: VirtualPciConfigSpace) -> VirtualPciConfigSpace {
         // Set config_value
-        // loop{}
         let id: (DeviceId, VendorId) = (0x110b, 0x4106);
         let revision: DeviceRevision = 0xFFu8;
         let base_class: BaseClass = 0x0;
