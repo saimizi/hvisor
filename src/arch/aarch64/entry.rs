@@ -26,7 +26,7 @@ pub unsafe extern "C" fn arch_entry() -> ! {
         core::arch::asm!(
             "
             // x0 = dtbaddr
-            mov x18, x0
+            mov x20, x0
 
             /* Insert nop instruction to ensure byte at offset 10 in hvisor binary is non-zero.
             * Rockchip U-Boot (arch_preboot_os@arch/arm/mach-rockchip/board.c:670) performs 
@@ -36,7 +36,7 @@ pub unsafe extern "C" fn arch_entry() -> ! {
 
             nop
             nop
-            bl {boot_cpuid_get}        // x17 = cpuid
+            bl {boot_cpuid_get}        // x19 = cpuid
 
             adrp x2, __core_end        // x2 = &__core_end
             mov x3, {per_cpu_size}     // x3 = per_cpu_size
@@ -69,9 +69,9 @@ pub unsafe extern "C" fn arch_entry() -> ! {
         1:
             bl {mmu_enable}
 
-            mov x1, x18
+            mov x1, x20
             mov x0, x19
-            mov x18, #0
+            mov x20, #0
             mov x19, #0
             bl {rust_main}            // x0 = cpuid, x1 = dtbaddr
             ",
