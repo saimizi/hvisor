@@ -20,7 +20,10 @@ use crate::arch::cpu::get_target_cpu;
 use crate::config::HvZoneConfig;
 use crate::consts::{INVALID_ADDRESS, MAX_CPU_NUM, MAX_WAIT_TIMES, PAGE_SIZE};
 use crate::cpu_data::{get_cpu_data, PerCpu, VcpuState};
-use crate::device::virtio_trampoline::{MAX_DEVS, VIRTIO_BRIDGE, VIRTIO_IRQS, VIRTIO_PCI_BRIDGE};
+use crate::device::virtio_trampoline::{
+    VirtioPCIHypercallOp, MAX_DEVS, VIRTIO_BRIDGE, VIRTIO_IRQS, VIRTIO_PCI_BRIDGE,
+    VIRTIO_PCI_HYPERCALL_VERSION,
+};
 use crate::error::HvResult;
 use crate::pci::pci_config::GLOBAL_PCIE_LIST;
 use crate::zone::{
@@ -47,7 +50,7 @@ numeric_enum! {
         HvClearInjectIrq = 20,
         HvIvcInfo = 5,
         HvConfigCheck = 6,
-        HvVirtioPCIDone = 7,
+        HvVirtioPCI = 7,
     }
 }
 pub const SGI_IPI_ID: u64 = 7;
@@ -77,7 +80,7 @@ impl<'a> HyperCall<'a> {
         );
         unsafe {
             match code {
-                HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0, arg1),
+                HyperCallCode::HvVirtioInit => self.hv_virtio_init(arg0),
                 HyperCallCode::HvVirtioInjectIrq => self.hv_virtio_inject_irq(),
                 HyperCallCode::HvVirtioGetIrq => self.hv_virtio_get_irq(arg0 as *mut u32),
                 HyperCallCode::HvZoneStart => {
@@ -98,7 +101,7 @@ impl<'a> HyperCall<'a> {
                 }
                 HyperCallCode::HvIvcInfo => self.hv_ivc_info(arg0),
                 HyperCallCode::HvConfigCheck => self.hv_zone_config_check(arg0 as *mut u64),
-                HyperCallCode::HvVirtioPCIDone => self.hv_virtio_pci_done(arg0),
+                HyperCallCode::HvVirtioPCI => self.hv_virtio_pci(arg0, arg1),
                 _ => {
                     warn!("hypercall id={} unsupported!", code as u64);
                     Ok(0)
@@ -110,19 +113,16 @@ impl<'a> HyperCall<'a> {
     // only root zone calls the function and set virtio shared region between el1 and el2.
     fn hv_virtio_init(
         &mut self,
-        shared_region_addr: u64,
-        virtio_pci_region: u64,
+        shared_region_addr: u64
     ) -> HyperCallResult {
         info!(
-            "handle hvc init virtio, shared_region_addr = {:#x?}, pci_region:{:x}",
-            shared_region_addr, virtio_pci_region
+            "handle hvc init virtio, shared_region_addr = {:#x?}",
+            shared_region_addr
         );
         if !is_this_root_zone() {
             return hv_result_err!(EPERM, "Init virtio over non-root zones: unsupported!");
         }
-        let shared_pci_region_addr_pa = self.hv_get_real_pa(virtio_pci_region) as usize;
         let shared_region_addr_pa = self.hv_get_real_pa(shared_region_addr) as usize;
-        assert!(shared_pci_region_addr_pa % PAGE_SIZE == 0);
         assert!(shared_region_addr_pa % PAGE_SIZE == 0);
         // let offset = shared_region_addr_pa & (PAGE_SIZE - 1);
         // memory::hv_page_table()
@@ -134,7 +134,6 @@ impl<'a> HyperCall<'a> {
         // 		MemFlags::READ | MemFlags::WRITE,
         // 	))?;
         // TODO: flush tlb
-        VIRTIO_PCI_BRIDGE.lock().init(shared_pci_region_addr_pa);
         VIRTIO_BRIDGE.set_base_addr(shared_region_addr_pa as _);
         info!("hvisor device region base is {:#x?}", shared_region_addr_pa);
 
@@ -329,17 +328,80 @@ impl<'a> HyperCall<'a> {
         HyperCallResult::Ok(core::cmp::min(cnt as _, zones_info.len()))
     }
 
-    fn hv_virtio_pci_done(&mut self, data_req_id: u64) -> HyperCallResult {
-        let cpu_id = (data_req_id & 0x0000_ffff_0000_0000) >> 32;
-        // Virtio PCI notice
-        // unsafe {
-        //     virtio_pci_add_pending_data_req_id(data_req_id);
-        // }
-        send_event(
-            cpu_id as usize,
-            SGI_IPI_ID as usize,
-            IPI_EVENT_VIRTIO_PCI_DONE,
-        );
-        HyperCallResult::Ok(0)
+    fn hv_virtio_pci(&mut self, arg0: u64, arg1: u64) -> HyperCallResult {
+        const VIRTIO_PCI_INIT: u64 = 0;
+        const VIRTIO_PCI_DOORBELL: u64 = 1;
+
+        if !is_this_root_zone() {
+            return hv_result_err!(
+                EPERM,
+                "Virtio PCI operation over non-root zones: unsupported!"
+            );
+        }
+
+        match arg0 {
+            VIRTIO_PCI_INIT => {
+                let shared_pci_region_addr_pa = self.hv_get_real_pa(arg1) as usize;
+                assert!(shared_pci_region_addr_pa % PAGE_SIZE == 0);
+                let mut bridge = VIRTIO_PCI_BRIDGE.lock();
+                bridge.init(shared_pci_region_addr_pa);
+                let info = bridge.hypercall_info();
+                if info.version != VIRTIO_PCI_HYPERCALL_VERSION {
+                    return hv_result_err!(
+                        EINVAL,
+                        format!(
+                            "Virtio PCI hypercall version mismatch: expect {}, got {}",
+                            VIRTIO_PCI_HYPERCALL_VERSION, info.version
+                        )
+                    );
+                }
+                HyperCallResult::Ok(0)
+            }
+            VIRTIO_PCI_DOORBELL => {
+                let bridge = VIRTIO_PCI_BRIDGE.lock();
+                let info = bridge.hypercall_info();
+                if info.version != VIRTIO_PCI_HYPERCALL_VERSION {
+                    return hv_result_err!(
+                        EINVAL,
+                        format!(
+                            "Virtio PCI hypercall version mismatch: expect {}, got {}",
+                            VIRTIO_PCI_HYPERCALL_VERSION, info.version
+                        )
+                    );
+                }
+
+                let op = VirtioPCIHypercallOp::try_from(info.op).map_err(|_| {
+                    hv_err!(
+                        EINVAL,
+                        format!("Unknown virtio pci hypercall op {}", info.op)
+                    )
+                })?;
+
+                match op {
+                    VirtioPCIHypercallOp::None | VirtioPCIHypercallOp::ConfigReqComplete => {
+                        HyperCallResult::Ok(0)
+                    }
+                    VirtioPCIHypercallOp::DataReqComplete => {
+                        send_event(
+                            info.target_cpu as usize,
+                            SGI_IPI_ID as usize,
+                            IPI_EVENT_VIRTIO_PCI_DONE,
+                        );
+                        HyperCallResult::Ok(0)
+                    }
+                    VirtioPCIHypercallOp::Reset => {
+                        drop(bridge);
+                        VIRTIO_PCI_BRIDGE
+                            .lock()
+                            .write_hypercall_info(crate::device::virtio_trampoline::VirtioPCIHypercallInfo::new());
+                        HyperCallResult::Ok(0)
+                    }
+                }
+            }
+            _ => hv_result_err!(
+                EINVAL,
+                format!("Unknown virtio pci hypercall mode {}", arg0)
+            ),
+        }
     }
 }

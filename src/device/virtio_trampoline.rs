@@ -56,6 +56,7 @@ pub const MAX_VQ: usize = 16;
 const MAX_PCI_CONFIG_REQ: usize = 4;
 const MAX_PCI_CONFIG_RES: usize = 4;
 const MAX_PCI_DATA_REQ: usize = 32;
+pub const VIRTIO_PCI_HYPERCALL_VERSION: u16 = 1;
 
 pub const MAX_BACKOFF: usize = 1024;
 
@@ -446,6 +447,51 @@ impl VirtioPCIConfigRes {
     }
 }
 
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VirtioPCIHypercallOp {
+    None = 0,
+    ConfigReqComplete = 1,
+    DataReqComplete = 2,
+    Reset = 3,
+}
+
+impl TryFrom<u16> for VirtioPCIHypercallOp {
+    type Error = ();
+
+    fn try_from(value: u16) -> core::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::None),
+            1 => Ok(Self::ConfigReqComplete),
+            2 => Ok(Self::DataReqComplete),
+            3 => Ok(Self::Reset),
+            _ => Err(()),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VirtioPCIHypercallInfo {
+    pub version: u16,
+    pub op: u16,
+    pub target_cpu: u32,
+    pub request_id: u32,
+    pub status: u32,
+}
+
+impl VirtioPCIHypercallInfo {
+    pub const fn new() -> Self {
+        Self {
+            version: VIRTIO_PCI_HYPERCALL_VERSION,
+            op: VirtioPCIHypercallOp::None as u16,
+            target_cpu: 0,
+            request_id: 0,
+            status: 0,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct VirtioPCIDataInfo {
@@ -510,6 +556,7 @@ impl VirtioPCIDataReq {
 
 #[repr(C)]
 struct VirtioPCIBridgeRegion {
+    hypercall_info: VirtioPCIHypercallInfo,
     config_req_front: ReadWrite<u32>,
     config_req_rear: ReadWrite<u32>,
     config_res_front: ReadWrite<u32>,
@@ -545,6 +592,7 @@ impl VirtioPCIBridge {
                 size_of::<VirtioPCIBridgeRegion>(),
             );
         }
+        self.write_hypercall_info(VirtioPCIHypercallInfo::new());
     }
 
     fn immut_region(&self) -> &VirtioPCIBridgeRegion {
@@ -555,6 +603,23 @@ impl VirtioPCIBridge {
     fn region(&mut self) -> &mut VirtioPCIBridgeRegion {
         assert!(self.base != 0, "VirtioPCIBridge not initialized");
         unsafe { &mut *(self.base as *mut VirtioPCIBridgeRegion) }
+    }
+
+    pub fn write_hypercall_info(&mut self, info: VirtioPCIHypercallInfo) {
+        let region = self.region();
+        unsafe {
+            core::ptr::write_volatile(
+                &mut region.hypercall_info as *mut VirtioPCIHypercallInfo,
+                info,
+            );
+        }
+        fence(Ordering::Release);
+    }
+
+    pub fn hypercall_info(&self) -> VirtioPCIHypercallInfo {
+        let region = self.immut_region();
+        fence(Ordering::Acquire);
+        unsafe { core::ptr::read_volatile(&region.hypercall_info as *const _) }
     }
 
     fn alloc_request_id(&mut self) -> u32 {
