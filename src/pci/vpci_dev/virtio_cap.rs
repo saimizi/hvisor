@@ -283,7 +283,7 @@ pub struct Virtqueue {
 
     this_dev_id: u16,
     queue_id: u16,
-    msix_table: Arc<RwLock<MsixTable>>,
+    // msix_table: Arc<RwLock<MsixTable>>,
 
     desc_table: Option<DescriptorTable>,
     used_area: Option<VirtqUsed>,
@@ -306,7 +306,7 @@ impl Virtqueue {
 
             this_dev_id: MAX_DEVS as u16,
             queue_id,
-            msix_table: msix,
+            // msix_table: msix,
             desc_table: None,
             used_area: None,
             avail_area: None,
@@ -322,11 +322,11 @@ impl Virtqueue {
         self.queue_id = queue_id;
     }
 
-    pub fn notify_driver(&self) {
-        self.msix_table
-            .read()
-            .inject_irq(self.queue_msix_vector as usize);
-    }
+    // pub fn notify_driver(&self) {
+    //     self.msix_table
+    //         .read()
+    //         .inject_irq(self.queue_msix_vector as usize);
+    // }
 
     pub fn set_desc_area(&mut self) {
         let base = self.queue_desc as usize;
@@ -422,22 +422,23 @@ impl VirtioPciCommonCfg {
 
 impl VirtioPciCommonCfg {
     // This function initialize the virtqueue in root linux
-    pub fn init_virtqueue_shared_space(&self) {
+    pub fn init_virtqueue_shared_space(&self) -> HvResult {
         // info!("queue_info:{:x?}", queue_info);
         let mut config_info = VirtioPCIConfigInfo::dummy();
         config_info.set_features(self.get_features());
-        config_info.set_dev_id(MAX_DEVS as u16);
         config_info.set_dtype(4);
         config_info.set_num_of_queues(self.num_queue);
         for i in 0..self.num_queue as usize {
             config_info.set_vqs(i, self.queue_list[i].read().get_area_info());
         }
-        VIRTIO_PCI_BRIDGE.lock().write_dev_info(config_info);
+        let mut pci_bridge = VIRTIO_PCI_BRIDGE.lock();
+        let request_id = pci_bridge.push_config_req(config_info)?;
         send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_CONFIG);
-        let dev_id = VIRTIO_PCI_BRIDGE.lock().til_config_finish();
+        let dev_id = pci_bridge.til_config_finish(request_id)?;
         for i in self.queue_list.iter() {
             i.write().set_dev_id(dev_id);
         }
+        Ok(())
     }
 
     fn get_features(&self) -> u64 {
@@ -453,7 +454,10 @@ impl VirtioPciCommonCfg {
                 0x14 => {
                     // we use FEATURES_OK to confirm that initialization is completed
                     if value & 0x04 != 0 {
-                        self.init_virtqueue_shared_space();
+                        if let Err(err) = self.init_virtqueue_shared_space() {
+                            error!("virtio pci queue init failed: {:?}", err);
+                            return false;
+                        }
                     }
                     self.device_status = value as u8;
                     return true;
@@ -727,7 +731,10 @@ impl AreaInBar for VirtioNotifyCap {
             self.msix_table
                 .write()
                 .add_pending_msix(info.get_msix_vector_idx() as usize);
-            VIRTIO_PCI_BRIDGE.lock().write_data_info(info);
+            if let Err(err) = VIRTIO_PCI_BRIDGE.lock().push_data_req(info) {
+                error!("virtio pci data enqueue failed: {:?}", err);
+                return Err(err);
+            }
             send_event(0, SGI_IPI_ID as usize, IPI_EVENT_VIRTIO_PCI_DATA);
             fence(core::sync::atomic::Ordering::SeqCst);
         }

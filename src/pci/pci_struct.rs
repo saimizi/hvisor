@@ -33,7 +33,7 @@ use super::{
 
 use crate::{
     config::HvPciDevConfig,
-    device::virtio_trampoline::VirtioPCIDataInfo,
+    device::{irqchip::gicv3::msix_backend, virtio_trampoline::VirtioPCIDataInfo},
     error::{HvErrorNum, HvResult},
     memory::MMIOAccess,
     pci::{
@@ -372,7 +372,6 @@ pub struct VirtualPciConfigSpace {
     capabilities: PciCapabilityList,
 
     dev_type: VpciDevType,
-    msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
     msix_table: Option<Arc<RwLock<MsixTable>>>,
 }
 
@@ -558,8 +557,8 @@ impl ArcRwLockVirtualPciConfigSpace {
         self.0.read().bar_mmio_distribute(bar, mmio_ac)
     }
 
-    pub fn try_inject_msix_irq(&self) {
-        self.0.read().inject_msix_irq();
+    pub fn try_inject_msix_irq(&self,msix_backend:&Arc<RwLock<dyn MsixBackend>>) {
+        self.0.read().inject_msix_irq(msix_backend);
     }
 }
 
@@ -712,9 +711,9 @@ impl VirtualPciConfigSpace {
         self.capabilities.handle_bar_read(bar, mmio_ac)
     }
 
-    pub fn get_msix_backend(&self) -> Option<Arc<RwLock<dyn MsixBackend>>> {
-        self.msix_backend.clone()
-    }
+    // pub fn get_msix_backend(&self) -> Option<Arc<RwLock<dyn MsixBackend>>> {
+    //     self.msix_backend.clone()
+    // }
 
     pub fn get_msix_entry(&self, data_info: VirtioPCIDataInfo) -> Option<MsixTableEntry> {
         // let data_info=VirtioPCIDataInfo::from_u64(data_req_id);
@@ -730,7 +729,7 @@ impl VirtualPciConfigSpace {
         res
     }
 
-    pub fn inject_msix_irq(&self) {
+    pub fn inject_msix_irq(&self,msix_backend:&Arc<RwLock<dyn MsixBackend>>) {
         // let data_info = VirtioPCIDataInfo::from_u64(data_req_id);
         // let msix_entry = match self.get_msix_entry(data_info){
         //     Some(x)=>x,
@@ -739,13 +738,13 @@ impl VirtualPciConfigSpace {
         //         return;
         //     }
         // };
-        let msix_backend = match self.get_msix_backend() {
-            Some(x) => x,
-            None => {
-                // warn!("There is no msix backend in this device!");
-                return;
-            }
-        };
+        // let msix_backend = match self.get_msix_backend() {
+        //     Some(x) => x,
+        //     None => {
+        //         // warn!("There is no msix backend in this device!");
+        //         return;
+        //     }
+        // };
 
         let msix_entries = match self.get_pending_msix() {
             Some(x) => x,
@@ -779,7 +778,6 @@ impl VirtualPciConfigSpace {
         dev_type: VpciDevType,
         config_value: ConfigValue,
         bararr: Bar,
-        msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
         msix_table: Option<Arc<RwLock<MsixTable>>>,
     ) -> Self {
         Self {
@@ -800,7 +798,6 @@ impl VirtualPciConfigSpace {
             rom: PciMem::default(),
             capabilities: PciCapabilityList::new(),
             dev_type,
-            msix_backend,
             msix_table,
         }
     }
@@ -829,7 +826,6 @@ impl VirtualPciConfigSpace {
             rom,
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
-            msix_backend: None,
             msix_table: None,
         }
     }
@@ -858,7 +854,6 @@ impl VirtualPciConfigSpace {
             rom,
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
-            msix_backend: None,
             msix_table: None,
         }
     }
@@ -889,7 +884,6 @@ impl VirtualPciConfigSpace {
             rom: PciMem::default(),
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
-            msix_backend: None,
             msix_table: None,
         }
     }
@@ -915,7 +909,6 @@ impl VirtualPciConfigSpace {
             rom: PciMem::default(),
             capabilities: PciCapabilityList::new(),
             dev_type: VpciDevType::Physical,
-            msix_backend: None,
             msix_table: None,
         }
     }

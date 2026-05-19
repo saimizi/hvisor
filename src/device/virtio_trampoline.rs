@@ -28,7 +28,7 @@ use crate::{
 };
 use crate::{
     arch::cpu::this_cpu_id, consts::MAX_WAIT_TIMES, device::irqchip::inject_irq, error::HvResult,
-    memory::MMIOAccess, pci::vpci_dev::tools::GuestMemory, zone::this_zone_id,
+    memory::MMIOAccess, zone::this_zone_id,
 };
 use alloc::collections::BTreeMap;
 use core::{
@@ -53,6 +53,9 @@ pub const MAX_REQ: u32 = 32;
 pub const MAX_DEVS: usize = 8; // Attention: The max virtio-dev number for vm is 8 (loongarch64 needs 3 consoles and 3 disks for zgclab project).
 pub const MAX_CPUS: usize = 32;
 pub const MAX_VQ: usize = 16;
+const MAX_PCI_CONFIG_REQ: usize = 4;
+const MAX_PCI_CONFIG_RES: usize = 4;
+const MAX_PCI_DATA_REQ: usize = 32;
 
 pub const MAX_BACKOFF: usize = 1024;
 
@@ -383,9 +386,9 @@ impl VirtioPCIConfigInfo {
         self.features = val;
     }
 
-    pub fn set_dev_id(&mut self, val: u16) {
-        self.dev_id = val;
-    }
+    // pub fn set_dev_id(&mut self, val: u16) {
+    //     self.dev_id = val;
+    // }
 
     pub fn set_num_of_queues(&mut self, val: u16) {
         self.num_of_queues = val;
@@ -401,6 +404,45 @@ impl VirtioPCIConfigInfo {
             return;
         }
         self.vqs[idx] = val;
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VirtioPCIConfigReq {
+    request_id: u32,
+    padding: u32,
+    info: VirtioPCIConfigInfo,
+}
+
+impl VirtioPCIConfigReq {
+    fn new(request_id: u32, info: VirtioPCIConfigInfo) -> Self {
+        Self {
+            request_id,
+            padding: 0,
+            info,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct VirtioPCIConfigRes {
+    request_id: u32,
+    status: u32,
+    dev_id: u16,
+    padding: u16,
+}
+
+impl VirtioPCIConfigRes {
+    #[allow(unused)]
+    pub fn success(request_id: u32, dev_id: u16) -> Self {
+        Self {
+            request_id,
+            status: 0,
+            dev_id,
+            padding: 0,
+        }
     }
 }
 
@@ -448,45 +490,215 @@ impl VirtioPCIDataInfo {
     // }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct VirtioPCIDataReq {
+    request_id: u32,
+    padding: u32,
+    info: VirtioPCIDataInfo,
+}
+
+impl VirtioPCIDataReq {
+    fn new(request_id: u32, info: VirtioPCIDataInfo) -> Self {
+        Self {
+            request_id,
+            padding: 0,
+            info,
+        }
+    }
+}
+
+#[repr(C)]
+struct VirtioPCIBridgeRegion {
+    config_req_front: ReadWrite<u32>,
+    config_req_rear: ReadWrite<u32>,
+    config_res_front: ReadWrite<u32>,
+    config_res_rear: ReadWrite<u32>,
+    data_req_front: ReadWrite<u32>,
+    data_req_rear: ReadWrite<u32>,
+    config_req_list: [VirtioPCIConfigReq; MAX_PCI_CONFIG_REQ],
+    config_res_list: [VirtioPCIConfigRes; MAX_PCI_CONFIG_RES],
+    data_req_list: [VirtioPCIDataReq; MAX_PCI_DATA_REQ],
+}
+
 pub struct VirtioPCIBridge {
-    config: GuestMemory,
-    data: GuestMemory,
+    base: usize,
+    next_request_id: u32,
 }
 
 impl VirtioPCIBridge {
     pub const fn dummy() -> Self {
         Self {
-            config: GuestMemory::dummy(),
-            data: GuestMemory::dummy(),
+            base: 0,
+            next_request_id: 1,
         }
     }
 
     pub fn init(&mut self, addr: usize) {
-        let size_of_config_info = size_of::<VirtioPCIConfigInfo>();
-        let size_of_data_info = size_of::<VirtioPCIDataInfo>();
-        self.config.set_ptr(addr);
-        self.config.set_len(size_of_config_info);
-        self.data.set_ptr(addr + size_of_config_info);
-        self.data.set_len(size_of_data_info);
-    }
-
-    pub fn write_dev_info(&mut self, config: VirtioPCIConfigInfo) {
-        self.config.write_obj(0, config);
-    }
-
-    pub fn write_data_info(&mut self, data_info: VirtioPCIDataInfo) {
-        self.data.write_obj(0, data_info);
-    }
-
-    pub fn til_config_finish(&self) -> u16 {
-        let mut info: VirtioPCIConfigInfo = self.config.read_obj(0);
-        while info.dev_id == MAX_DEVS as u16 {
-            for _ in 0..10 {
-                // info!("waiting!");
-            }
-            info = self.config.read_obj(0);
+        self.base = addr;
+        self.next_request_id = 1;
+        assert!(size_of::<VirtioPCIBridgeRegion>() <= crate::consts::PAGE_SIZE);
+        unsafe {
+            core::ptr::write_bytes(
+                self.base as *mut u8,
+                0,
+                size_of::<VirtioPCIBridgeRegion>(),
+            );
         }
-        info.dev_id
+    }
+
+    fn immut_region(&self) -> &VirtioPCIBridgeRegion {
+        assert!(self.base != 0, "VirtioPCIBridge not initialized");
+        unsafe { &*(self.base as *const VirtioPCIBridgeRegion) }
+    }
+
+    fn region(&mut self) -> &mut VirtioPCIBridgeRegion {
+        assert!(self.base != 0, "VirtioPCIBridge not initialized");
+        unsafe { &mut *(self.base as *mut VirtioPCIBridgeRegion) }
+    }
+
+    fn alloc_request_id(&mut self) -> u32 {
+        let request_id = self.next_request_id;
+        self.next_request_id = self.next_request_id.wrapping_add(1);
+        if self.next_request_id == 0 {
+            self.next_request_id = 1;
+        }
+        request_id
+    }
+
+    fn is_config_req_full(&self) -> bool {
+        let region = self.immut_region();
+        let front = region.config_req_front.get() as usize;
+        let rear = region.config_req_rear.get() as usize;
+        fence(Ordering::Acquire);
+        ((rear + 1) & (MAX_PCI_CONFIG_REQ - 1)) == front
+    }
+
+    fn is_data_req_full(&self) -> bool {
+        let region = self.immut_region();
+        let front = region.data_req_front.get() as usize;
+        let rear = region.data_req_rear.get() as usize;
+        fence(Ordering::Acquire);
+        ((rear + 1) & (MAX_PCI_DATA_REQ - 1)) == front
+    }
+
+    fn is_config_res_empty(&self) -> bool {
+        let region = self.immut_region();
+        let front = region.config_res_front.get();
+        let rear = region.config_res_rear.get();
+        fence(Ordering::Acquire);
+        front == rear
+    }
+
+    fn wait_for_queue_slot(&self, is_full: impl Fn(&Self) -> bool, queue_name: &str) -> HvResult {
+        let mut count = 0usize;
+        let mut backoff = 1usize;
+        while is_full(self) {
+            for _ in 0..backoff {
+                core::hint::spin_loop();
+            }
+            count += backoff;
+            if count >= MAX_WAIT_TIMES {
+                return hv_result_err!(EBUSY, format!("virtio pci {queue_name} queue is full"));
+            }
+            backoff = (backoff << 1).min(MAX_BACKOFF);
+        }
+        Ok(())
+    }
+
+    pub fn push_config_req(&mut self, config: VirtioPCIConfigInfo) -> HvResult<u32> {
+        self.wait_for_queue_slot(Self::is_config_req_full, "config request")?;
+        let request_id = self.alloc_request_id();
+        let region = self.region();
+        let rear = region.config_req_rear.get() as usize;
+        unsafe {
+            core::ptr::write_volatile(
+                &mut region.config_req_list[rear] as *mut VirtioPCIConfigReq,
+                VirtioPCIConfigReq::new(request_id, config),
+            );
+        }
+        fence(Ordering::Release);
+        region
+            .config_req_rear
+            .set(((rear + 1) & (MAX_PCI_CONFIG_REQ - 1)) as u32);
+        Ok(request_id)
+    }
+
+    pub fn push_data_req(&mut self, data_info: VirtioPCIDataInfo) -> HvResult<u32> {
+        self.wait_for_queue_slot(Self::is_data_req_full, "data request")?;
+        let request_id = self.alloc_request_id();
+        let region = self.region();
+        let rear = region.data_req_rear.get() as usize;
+        unsafe {
+            core::ptr::write_volatile(
+                &mut region.data_req_list[rear] as *mut VirtioPCIDataReq,
+                VirtioPCIDataReq::new(request_id, data_info),
+            );
+        }
+        fence(Ordering::Release);
+        region
+            .data_req_rear
+            .set(((rear + 1) & (MAX_PCI_DATA_REQ - 1)) as u32);
+        Ok(request_id)
+    }
+
+    fn peek_config_res(&self) -> VirtioPCIConfigRes {
+        let region = self.immut_region();
+        let front = region.config_res_front.get() as usize;
+        fence(Ordering::Acquire);
+        unsafe { core::ptr::read_volatile(&region.config_res_list[front] as *const _) }
+    }
+
+    fn advance_config_res(&mut self) {
+        let region = self.region();
+        let front = region.config_res_front.get() as usize;
+        fence(Ordering::Release);
+        region
+            .config_res_front
+            .set(((front + 1) & (MAX_PCI_CONFIG_RES - 1)) as u32);
+    }
+
+    pub fn til_config_finish(&mut self, request_id: u32) -> HvResult<u16> {
+        let mut count = 0usize;
+        let mut backoff = 1usize;
+
+        loop {
+            if !self.is_config_res_empty() {
+                let res = self.peek_config_res();
+                self.advance_config_res();
+                if res.request_id != request_id {
+                    return hv_result_err!(
+                        EIO,
+                        format!(
+                            "virtio pci config response mismatch: expect {}, got {}",
+                            request_id, res.request_id
+                        )
+                    );
+                }
+                if res.status != 0 {
+                    return hv_result_err!(
+                        EIO,
+                        format!(
+                            "virtio pci config request {} failed with status {}",
+                            request_id, res.status
+                        )
+                    );
+                }
+                return Ok(res.dev_id);
+            }
+
+            for _ in 0..backoff {
+                core::hint::spin_loop();
+            }
+            count += backoff;
+            if count >= MAX_WAIT_TIMES {
+                return hv_result_err!(
+                    EBUSY,
+                    format!("virtio pci config request {} timed out", request_id)
+                );
+            }
+            backoff = (backoff << 1).min(MAX_BACKOFF);
+        }
     }
 }
 

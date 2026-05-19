@@ -393,7 +393,7 @@ impl Zone {
                                         + ((bdf.device() as u64) << 15)
                                         + ((bdf.function() as u64) << 12);
                                     let dev =
-                                        virt_dev_init(bdf, base, dev_type, msix_backend.clone());
+                                        virt_dev_init(bdf, base, dev_type);
                                     if let Some(x) = dev {
                                         inner.vpci_bus_mut().insert(vbdf, x);
                                     }

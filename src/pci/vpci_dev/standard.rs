@@ -151,7 +151,6 @@ impl VpciDeviceHandler for StandardHandler {
         let msix_table: Arc<RwLock<MsixTable>> = Arc::new(RwLock::new(MsixTable::new(
             0x10,
             dev.get_bdf().requester_id() as usize,
-            dev.get_msix_backend(),
         )));
         let msix_cap = arc_rwlock!(MsixCap::new(
             msix_cap_offset,

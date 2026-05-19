@@ -97,7 +97,6 @@ impl VpciDeviceHandler for VirtioRngHandler {
         let msix_table: Arc<RwLock<MsixTable>> = Arc::new(RwLock::new(MsixTable::new(
             0x10,
             dev.get_bdf().requester_id() as usize,
-            dev.get_msix_backend(),
         )));
         let msix_cap = arc_rwlock!(MsixCap::new(0x74, 0x60, 0x10, msix_table.clone()));
         let msix = PciCapability::new_cap(CapabilityType::MsiX, msix_cap);

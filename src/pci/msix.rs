@@ -34,12 +34,18 @@ pub fn activate_msix() {
     let zone = this_zone();
     let zone_lock = zone.read();
     let bus = zone_lock.vpci_bus();
-
+    let msix_backend = match bus.get_msix_backend() {
+        Some(x) => x,
+        None => {
+            // warn!("There is no msix backend in this zone's vpci bus!");
+            return;
+        }
+    };
     for (_, i) in bus.read_devs() {
         // if i.get_bdf().requester_id() == dev_id{
         //     i.try_inject_msix_irq();
         // }
-        i.try_inject_msix_irq();
+        i.try_inject_msix_irq(&msix_backend);
     }
 }
 
@@ -273,14 +279,12 @@ pub struct MsixTable {
     device_id: usize,
     event_id: Vec<(usize, usize)>,
     pending_msix_idx: Vec<usize>,
-    msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
 }
 
 impl MsixTable {
     pub fn new(
         size: usize,
         deviceid: usize,
-        msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
     ) -> Self {
         let mut vec = Vec::new();
         vec.resize(size, MsixTableEntry::dummy());
@@ -289,23 +293,7 @@ impl MsixTable {
             device_id: deviceid,
             event_id: Vec::new(),
             pending_msix_idx: Vec::new(),
-            msix_backend,
         }
-    }
-
-    pub fn inject_irq(&self, vector_index: usize) {
-        if vector_index >= self.table.len() {
-            warn!("msix vector index {} out of range", vector_index);
-            return;
-        }
-        if let Some(backend) = &self.msix_backend {
-            backend
-                .read()
-                .activate_irq(self.device_id, &self.table[vector_index]);
-            return;
-        }
-
-        warn!("No MsixBackend provided,thus msix irq is not support!");
     }
 
     pub fn get_entry(&self, vector_index: usize) -> Option<MsixTableEntry> {

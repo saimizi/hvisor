@@ -108,7 +108,6 @@ pub(super) fn virt_dev_init(
     bdf: Bdf,
     base: PciConfigAddress,
     dev_type: VpciDevType,
-    msix_backend: Option<Arc<RwLock<dyn MsixBackend>>>,
 ) -> Option<VirtualPciConfigSpace> {
     #[cfg(feature = "virtio_pci")]
     {
@@ -121,7 +120,6 @@ pub(super) fn virt_dev_init(
             dev_type,
             ConfigValue::default(),
             Bar::default(),
-            msix_backend,
             None,
         );
 
