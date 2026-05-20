@@ -33,7 +33,7 @@ use super::{
 
 use crate::{
     config::HvPciDevConfig,
-    device::{irqchip::gicv3::msix_backend, virtio_trampoline::VirtioPCIDataInfo},
+    device::virtio_trampoline::VirtioPCIDataInfo,
     error::{HvErrorNum, HvResult},
     memory::MMIOAccess,
     pci::{
