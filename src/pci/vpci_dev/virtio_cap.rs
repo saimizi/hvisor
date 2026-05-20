@@ -284,7 +284,6 @@ pub struct Virtqueue {
     this_dev_id: u16,
     queue_id: u16,
     // msix_table: Arc<RwLock<MsixTable>>,
-
     desc_table: Option<DescriptorTable>,
     used_area: Option<VirtqUsed>,
     avail_area: Option<AvailRing>,
@@ -292,7 +291,7 @@ pub struct Virtqueue {
 }
 
 impl Virtqueue {
-    pub fn new(msix: Arc<RwLock<MsixTable>>, queue_id: u16) -> Self {
+    pub fn new(queue_id: u16) -> Self {
         Self {
             queue_size: 256,
             queue_msix_vector: u16::MAX,
@@ -371,7 +370,12 @@ impl Virtqueue {
     }
 
     pub fn get_area_info(&self) -> VirtqueueAreaInfo {
-        VirtqueueAreaInfo::new(self.queue_desc, self.queue_driver, self.queue_device,self.queue_size as u64)
+        VirtqueueAreaInfo::new(
+            self.queue_desc,
+            self.queue_driver,
+            self.queue_device,
+            self.queue_size as u64,
+        )
     }
 
     pub fn get_data_info(&self) -> VirtioPCIDataInfo {
@@ -385,6 +389,7 @@ pub struct VirtioPciCommonCfg {
     device_feature: (u32, u32),
     driver_feature_select: u32,
     driver_feature: (u32, u32),
+    dtype: u16,
     config_msix_vector: u16,
     num_queue: u16,
     device_status: u8,
@@ -396,13 +401,14 @@ pub struct VirtioPciCommonCfg {
 }
 
 impl VirtioPciCommonCfg {
-    pub fn new() -> Self {
+    pub fn new(dtype: u16) -> Self {
         let cfg = VirtioPciCommonCfg {
             device_feature_select: 0,
             device_feature: (0, 65),
             // device_feature:(0,1),
             driver_feature_select: 0,
             driver_feature: (0, 0),
+            dtype,
             config_msix_vector: u16::MAX,
             num_queue: 0,
             device_status: 0,
@@ -426,7 +432,7 @@ impl VirtioPciCommonCfg {
         // info!("queue_info:{:x?}", queue_info);
         let mut config_info = VirtioPCIConfigInfo::dummy();
         config_info.set_features(self.get_features());
-        config_info.set_dtype(4);
+        config_info.set_dtype(self.dtype);
         config_info.set_num_of_queues(self.num_queue);
         for i in 0..self.num_queue as usize {
             config_info.set_vqs(i, self.queue_list[i].read().get_area_info());
@@ -570,9 +576,6 @@ impl AreaInBar for VirtioPciCommonCfg {
                     mmio_ac.value = self.device_status as usize;
                 }
                 0x15 => {
-                    if self.config_changed {
-                        self.config_generation += 1;
-                    }
                     mmio_ac.value = self.config_generation as usize;
                 }
                 _ => {
@@ -634,7 +637,6 @@ impl AreaInBar for VirtioPciCommonCfg {
 
     fn write(&mut self, mmio_ac: &MMIOAccess) -> HvResult {
         if self.write_into(mmio_ac) {
-            self.config_changed = true;
             return Ok(());
         }
         warn!("the write has not reached the common config!");

@@ -111,10 +111,7 @@ impl<'a> HyperCall<'a> {
     }
 
     // only root zone calls the function and set virtio shared region between el1 and el2.
-    fn hv_virtio_init(
-        &mut self,
-        shared_region_addr: u64
-    ) -> HyperCallResult {
+    fn hv_virtio_init(&mut self, shared_region_addr: u64) -> HyperCallResult {
         info!(
             "handle hvc init virtio, shared_region_addr = {:#x?}",
             shared_region_addr
@@ -391,9 +388,9 @@ impl<'a> HyperCall<'a> {
                     }
                     VirtioPCIHypercallOp::Reset => {
                         drop(bridge);
-                        VIRTIO_PCI_BRIDGE
-                            .lock()
-                            .write_hypercall_info(crate::device::virtio_trampoline::VirtioPCIHypercallInfo::new());
+                        VIRTIO_PCI_BRIDGE.lock().write_hypercall_info(
+                            crate::device::virtio_trampoline::VirtioPCIHypercallInfo::new(),
+                        );
                         HyperCallResult::Ok(0)
                     }
                 }

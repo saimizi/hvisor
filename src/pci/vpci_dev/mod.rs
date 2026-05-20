@@ -15,12 +15,8 @@
 //
 
 use crate::error::HvResult;
-use crate::pci::msix::MsixBackend;
 use crate::pci::pci_struct::{ArcRwLockVirtualPciConfigSpace, Bdf, VirtualPciConfigSpace};
 use crate::pci::PciConfigAddress;
-
-use alloc::sync::Arc;
-use spin::RwLock;
 
 macro_rules! pci_virt_log {
     ($($arg:tt)*) => {
@@ -36,6 +32,7 @@ macro_rules! arc_rwlock {
     };
 }
 
+mod blk;
 mod rng;
 pub mod standard;
 pub mod tools;
@@ -61,6 +58,7 @@ pub enum VpciDevType {
     Physical = 0,
     StandardVdev = 1,
     VirtioRng = 2,
+    VirtioBlk = 3,
     // Add new device types here
 }
 
@@ -94,6 +92,7 @@ pub trait VpciDeviceHandler: Sync + Send {
 static HANDLERS: &[(&dyn VpciDeviceHandler, VpciDevType)] = &[
     (&standard::HANDLER, VpciDevType::StandardVdev),
     (&rng::HANDLER, VpciDevType::VirtioRng),
+    (&blk::HANDLER, VpciDevType::VirtioBlk),
 ];
 
 pub(crate) fn get_handler(dev_type: VpciDevType) -> Option<&'static dyn VpciDeviceHandler> {

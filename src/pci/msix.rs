@@ -282,10 +282,7 @@ pub struct MsixTable {
 }
 
 impl MsixTable {
-    pub fn new(
-        size: usize,
-        deviceid: usize,
-    ) -> Self {
+    pub fn new(size: usize, deviceid: usize) -> Self {
         let mut vec = Vec::new();
         vec.resize(size, MsixTableEntry::dummy());
         Self {

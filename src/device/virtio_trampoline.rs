@@ -337,16 +337,16 @@ pub struct VirtqueueAreaInfo {
     pub avail_area: u64,
     pub used_area: u64,
 
-    pub queue_size:u64,
+    pub queue_size: u64,
 }
 
 impl VirtqueueAreaInfo {
-    pub fn new(desc: u64, avail: u64, used: u64,queue_size:u64) -> Self {
+    pub fn new(desc: u64, avail: u64, used: u64, queue_size: u64) -> Self {
         Self {
             desc_area: desc,
             avail_area: avail,
             used_area: used,
-            queue_size
+            queue_size,
         }
     }
 
@@ -586,11 +586,7 @@ impl VirtioPCIBridge {
         self.next_request_id = 1;
         assert!(size_of::<VirtioPCIBridgeRegion>() <= crate::consts::PAGE_SIZE);
         unsafe {
-            core::ptr::write_bytes(
-                self.base as *mut u8,
-                0,
-                size_of::<VirtioPCIBridgeRegion>(),
-            );
+            core::ptr::write_bytes(self.base as *mut u8, 0, size_of::<VirtioPCIBridgeRegion>());
         }
         self.write_hypercall_info(VirtioPCIHypercallInfo::new());
     }

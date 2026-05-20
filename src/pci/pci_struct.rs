@@ -557,7 +557,7 @@ impl ArcRwLockVirtualPciConfigSpace {
         self.0.read().bar_mmio_distribute(bar, mmio_ac)
     }
 
-    pub fn try_inject_msix_irq(&self,msix_backend:&Arc<RwLock<dyn MsixBackend>>) {
+    pub fn try_inject_msix_irq(&self, msix_backend: &Arc<RwLock<dyn MsixBackend>>) {
         self.0.read().inject_msix_irq(msix_backend);
     }
 }
@@ -729,7 +729,7 @@ impl VirtualPciConfigSpace {
         res
     }
 
-    pub fn inject_msix_irq(&self,msix_backend:&Arc<RwLock<dyn MsixBackend>>) {
+    pub fn inject_msix_irq(&self, msix_backend: &Arc<RwLock<dyn MsixBackend>>) {
         // let data_info = VirtioPCIDataInfo::from_u64(data_req_id);
         // let msix_entry = match self.get_msix_entry(data_info){
         //     Some(x)=>x,
