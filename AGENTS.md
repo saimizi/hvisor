@@ -4,6 +4,14 @@ hvisor is a Rust-based Type-1 hypervisor supporting aarch64, riscv64, x86_64,
 and loongarch64 across 20+ development boards. It runs as a `#![no_std]`
 bare-metal environment at EL2 (aarch64) or HS mode (riscv64).
 
+## Documentation
+
+Comprehensive user and architecture documentation is available at
+**[https://hvisor.syswonder.org/](https://hvisor.syswonder.org/)** (source:
+[github.com/syswonder/hvisor-book](https://github.com/syswonder/hvisor-book)).
+It covers board-specific setup, compilation, zone configuration, and detailed
+architecture explainers.
+
 ## Quick Start
 
 ```bash
@@ -71,4 +79,6 @@ Co-authored-by: ...
 Types: `feat` / `fix` / `docs` / `refactor` / `ci`.
 Scope: architecture or subsystem name (e.g. `aarch64`, `riscv64`, `pci`,
 `virtio`).
-AI-assisted commits must include a `Co-authored-by:` trailer.
+AI attribution is optional. Consider adding it for substantial
+AI-generated changes (e.g. large refactors, cross-file edits, design
+work). Omit for routine edits, boilerplate, and simple fixes.
